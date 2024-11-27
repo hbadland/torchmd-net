@@ -16,6 +16,7 @@ from torchmdnet import priors
 from lightning_utilities.core.rank_zero import rank_zero_warn
 import warnings
 import zipfile
+import rich
 
 
 def create_model(args, prior_model=None, mean=None, std=None):
@@ -105,6 +106,23 @@ def create_model(args, prior_model=None, mean=None, std=None):
             equivariance_invariance_group=args["equivariance_invariance_group"],
             static_shapes=args["static_shapes"],
             **shared_args,
+        )
+    elif args["model"] == "mlp_deepset":
+        from torchmdnet.models.mlp_deepset import MLPDeepSet
+
+        is_equivariant = False
+        representation_model = MLPDeepSet(
+            n_atom_basis=args["n_atom_basis"],
+            base_cutoff=args["base_cutoff"],
+            inner_cutoff=args["inner_cutoff"],
+            outer_cutoff=args["outer_cutoff"],
+            embedding_size=args["embedding_dimension"],
+            # radial_basis=None,
+            max_num_neighbors=args["max_num_neighbors"],
+            use_vector_representation=args["use_vector_representation"],
+            forces_based_on_energy=args["forces_based_on_energy"],
+            close_far_split=args["close_far_split"],
+            using_triplet_module=args["using_triplet_module"]
         )
     else:
         raise ValueError(f'Unknown architecture: {args["model"]}')

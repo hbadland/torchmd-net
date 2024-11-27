@@ -78,6 +78,15 @@ def get_argparse():
     parser.add_argument('--output-model', type=str, default='Scalar', choices=output_modules.__all__, help='The type of output model')
     parser.add_argument('--output-mlp-num-layers', type=int, default=0, help='If the output model uses an MLP this will be the number of hidden layers, excluding the input and output layers.')
     parser.add_argument('--prior-model', type=str, default=None, help='Which prior model to use. It can be a string, a dict if you want to add arguments for it or a dicts to add more than one prior. e.g. {"Atomref": {"max_z":100}, "Coulomb":{"max_num_neighs"=100, "lower_switch_distance"=4, "upper_switch_distance"=8}', action="extend", nargs="*")
+    parser.add_argument('--n_atom_basis', type=int, default=22, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--base_cutoff', type=float, default=0.0, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--inner_cutoff', type=float, default=5.0, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--outer_cutoff', type=float, default=15.0, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--max_num_neighbors', type=int, default=128, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--use_vector_representation', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--forces_based_on_energy', type=bool, default=False, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--close_far_split', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--using_triplet_module', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
 
     # architectural args
     parser.add_argument('--charge', type=bool, default=False, help='Model needs a total charge. Set this to True if your dataset contains charges and you want them passed down to the model.')
@@ -131,6 +140,7 @@ def get_argparse():
 def get_args():
     parser = get_argparse()
     args = parser.parse_args()
+
     if args.redirect:
         sys.stdout = open(os.path.join(args.log_dir, "log"), "w")
         sys.stderr = sys.stdout
@@ -200,7 +210,7 @@ def main():
         rank_zero_warn(
             f"WARNING: Test set will be evaluated every {args.test_interval} epochs. This will slow down training."
         )
-
+        
     trainer = pl.Trainer(
         strategy="auto",
         max_epochs=args.num_epochs,
