@@ -122,6 +122,34 @@ class GaussianRBF(nn.Module):
         return gaussian_rbf(inputs, self.offsets, self.widths)
 
 
+def build_mlp(input_dim, hidden_dim, output_dim, num_layers, activation=nn.SiLU):
+    """
+    Function to build an MLP with a specified number of layers, where all hidden layers
+    have the same dimensions and use a customizable activation function.
+
+    Args:
+        input_dim (int): Dimension of the input features.
+        hidden_dim (int): Dimension of the hidden layers.
+        output_dim (int): Dimension of the output features.
+        num_layers (int): Number of hidden layers in the model.
+        activation (nn.Module): Activation function to use (default is nn.SiLU).
+
+    Returns:
+        nn.Sequential: The MLP model.
+    """
+    layers = [nn.Linear(input_dim, hidden_dim), activation()]  # First layer and activation
+
+    # Add hidden layers with the same dimensions
+    for _ in range(num_layers - 1):
+        layers.extend([nn.Linear(hidden_dim, hidden_dim), activation()])
+
+    # Add the final output layer (no activation for output layer)
+    layers.append(nn.Linear(hidden_dim, output_dim))
+
+    # Return the model as a Sequential module
+    return nn.Sequential(*layers)
+
+
 
 class CollectAtomTriples(torch.nn.Module):
 
@@ -288,6 +316,7 @@ class TripleAtomsDistanceAdumbration(torch.nn.Module):
 
         # Initializing the zeros tensor to keep the atomic numbers and distances
         triple_representation = torch.zeros(triple_idx_i.size(0), self.orbitals_size * 3 + 3, device=idx_j.device)
+
         triple_representation[:, 0:self.orbitals_size] = atoms_electron_config[triple_idx_i]
         triple_representation[:, self.orbitals_size:2 * self.orbitals_size] = atoms_electron_config[idx_j[triple_idx_j]]
         triple_representation[:, 2 * self.orbitals_size:3 * self.orbitals_size] = atoms_electron_config[idx_j[triple_idx_k]]
@@ -352,88 +381,41 @@ class MLPDeepSet(nn.Module):
 
         self.pair_atoms_coder = PairAtomsDistanceAdumbration()
 
-        self.distance = OptimizedDistance(
-            base_cutoff,
-            outer_cutoff,
-            max_num_pairs=-max_num_neighbors,
-            return_vecs=True,
-            loop=True,
-            box=None,
-            long_edge_index=True,
-            check_errors=True, # Set False if there are more than 10k neighbors and it throw an error. Check this thread: https://github.com/torchmd/torchmd-net/issues/203
-        )
-
-        self.collect_triples = CollectAtomTriples()
-
+        # self.distance = OptimizedDistance(
+        #     base_cutoff,
+        #     outer_cutoff,
+        #     max_num_pairs=max_num_neighbors,
+        #     return_vecs=True,
+        #     loop=True,
+        #     box=None,
+        #     long_edge_index=True,
+        #     check_errors=True, # Set False if there are more than 10k neighbors and it throw an error. Check this thread: https://github.com/torchmd/torchmd-net/issues/203
+        # )
 
         try:
             # Initialize MLPs
             in_size: int = 45 + self.radial_basis.n_rbf
             if self.close_far_split:
-                self.inner_scalar_mlp = nn.Sequential(
-                    torch.nn.Linear(in_size, 12 * embedding_size),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(12 * embedding_size, 6 * embedding_size),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(6 * embedding_size, embedding_size),
-                )
+                self.inner_scalar_mlp = build_mlp(in_size, embedding_size, embedding_size, 3, activation=nn.SiLU)
 
-                self.outer_scalar_mlp = nn.Sequential(
-                    torch.nn.Linear(in_size, 12 * embedding_size),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(12 * embedding_size, 6 * embedding_size),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(6 * embedding_size, embedding_size),
-                )
+                self.outer_scalar_mlp = build_mlp(in_size, embedding_size, embedding_size, 3, activation=nn.SiLU)
 
                 if self.use_vector_representation:
-                    self.inner_vector_mlp = nn.Sequential(
-                        torch.nn.Linear(in_size, 12 * embedding_size),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(12 * embedding_size, 6 * embedding_size),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(6 * embedding_size, 3 * embedding_size),
-                    )
+                    self.inner_vector_mlp = build_mlp(in_size, embedding_size, 3 * embedding_size, 3, activation=nn.SiLU)
 
-                    self.outer_vector_mlp = nn.Sequential(
-                        torch.nn.Linear(in_size, 12 * embedding_size),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(12 * embedding_size, 6 * embedding_size),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(6 * embedding_size, 3 * embedding_size),
-                    )
+                    self.outer_vector_mlp = build_mlp(in_size, embedding_size, 3 * embedding_size, 3, activation=nn.SiLU)
 
             else:
-                self.scalar_mlp = nn.Sequential(
-                    torch.nn.Linear(in_size, 12 * embedding_size),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(12 * embedding_size, 6 * embedding_size),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(6 * embedding_size, embedding_size),
-                )
+                self.scalar_mlp = build_mlp(in_size, embedding_size, embedding_size, 3, activation=nn.SiLU)
                 if self.use_vector_representation:
-                    self.vector_mlp = nn.Sequential(
-                        torch.nn.Linear(in_size, 12 * embedding_size),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(12 * embedding_size, 6 * embedding_size),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(6 * embedding_size, 3 *embedding_size),
-                    )
+                    self.vector_mlp = build_mlp(in_size, embedding_size, 3 * embedding_size, 3, activation=nn.SiLU)
 
             if self.using_triplet_module:
                 self.triplet_atoms_coder = TripleAtomsDistanceAdumbration()
-                self.triplet_scalar_processor_mlp = nn.Sequential(
-                    torch.nn.Linear(69, 12 * embedding_size),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(12 * embedding_size, embedding_size),
-                )
+                self.triplet_scalar_processor_mlp = build_mlp(69, 3 * embedding_size, embedding_size, 3, activation=nn.SiLU)
 
                 if self.use_vector_representation:
-                    self.triplet_vector_processor_mlp = nn.Sequential(
-                        torch.nn.Linear(69, 12 * n_atom_basis),
-                        torch.nn.SiLU(),
-                        torch.nn.Linear(12 * n_atom_basis, 3 * embedding_size),
-                    )
+                    self.triplet_vector_processor_mlp = build_mlp(69, 3 * embedding_size, 3 * embedding_size, 3, activation=nn.SiLU)
 
         except Exception as e:
             print(f"Error initializing MLP layers: {e}")
@@ -496,19 +478,20 @@ class MLPDeepSet(nn.Module):
                 box: Optional[torch.Tensor] = None,
                 q: Optional[torch.Tensor] = None,
                 s: Optional[torch.Tensor] = None,
-                ) -> typing.Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        edge_index, edge_weight, edge_vec = self.distance(pos, batch, box)
+                extra_args: Optional[Dict[str, torch.Tensor]] = None) -> typing.Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        edge_index, edge_weight, edge_vec = extra_args["computed_values"]["edge_index"], extra_args["computed_values"]["edge_weight"], extra_args["computed_values"]["edge_vec"]
         phi_ij = self.radial_basis(edge_weight)
         idx_i = edge_index[0, :]
+        idx_j = edge_index[1, :]
 
-        pair_atoms_repr = self.pair_atoms_coder(z, edge_index[0, :], edge_index[1, :], edge_weight, phi_ij)
+        pair_atoms_repr = self.pair_atoms_coder(z, idx_i, idx_j, edge_weight, phi_ij)
 
         q = self.process_pair_scalar(pair_atoms_repr, idx_i)
         mu = self.process_pair_vector(pair_atoms_repr, idx_i) if self.use_vector_representation else None
 
         if self.using_triplet_module:
-            idx_i_triples, idx_j_triples, idx_k_triples = self.collect_triples(edge_index[0, :])
-            triplet_atoms_repr = self.triplet_atoms_coder(idx_i_triples, idx_j_triples, idx_k_triples, idx_i, z, pos)
+            idx_i_triples, idx_j_triples, idx_k_triples = extra_args["computed_values"]["idx_i_triples"], extra_args["computed_values"]["idx_j_triples"], extra_args["computed_values"]["idx_k_triples"]
+            triplet_atoms_repr = self.triplet_atoms_coder(idx_i_triples, idx_j_triples, idx_k_triples, idx_i, idx_j, z, pos)
             tq = self.triplet_scalar_pass(triplet_atoms_repr, idx_i, idx_i_triples)
             tmu = self.triplet_vector_pass(triplet_atoms_repr, idx_i, idx_i_triples) if self.use_vector_representation else None
 
