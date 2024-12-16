@@ -117,6 +117,7 @@ def create_model(args, prior_model=None, mean=None, std=None):
             inner_cutoff=args["inner_cutoff"],
             outer_cutoff=args["outer_cutoff"],
             embedding_size=args["embedding_dimension"],
+            mlp_layer=args["mlp_layer"],
             # radial_basis=None,
             max_num_neighbors=args["max_num_neighbors"],
             use_vector_representation=args["use_vector_representation"],
@@ -472,13 +473,20 @@ class TorchMD_Net(nn.Module):
             Tuple[Tensor, Optional[Tensor]]: The output of the model and the derivative of the output with respect to the positions if derivative is True, None otherwise.
         """
         assert z.dim() == 1 and z.dtype == torch.long
+        # Processing extra args here
+        distance_args = None
+        if extra_args is not None:
+            if "computed_values" in extra_args:
+                distance_args = extra_args["computed_values"]
+                del extra_args["computed_values"]
+
         batch = torch.zeros_like(z) if batch is None else batch
 
         if self.derivative:
             pos.requires_grad_(True)
         # run the potentially wrapped representation model
         x, v, z, pos, batch = self.representation_model(
-            z, pos, batch, box=box, q=q, s=s, extra_args=extra_args
+            z, pos, batch, box=box, q=q, s=s, extra_args=distance_args
         )
         # apply the output network
         x = self.output_model.pre_reduce(x, v, z, pos, batch)
@@ -507,7 +515,6 @@ class TorchMD_Net(nn.Module):
             for prior in self.prior_model:
                 y = prior.post_reduce(y, z, pos, batch, box, extra_args)
         # compute gradients with respect to coordinates
-
         if self.derivative:
             grad_outputs: List[Optional[torch.Tensor]] = [torch.ones_like(y)]
             dy = grad(

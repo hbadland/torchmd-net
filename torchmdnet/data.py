@@ -25,123 +25,123 @@ class CustomDataLoader(GeometricDataLoader):
         self.collate_fn = collate_fn
 
 
-def generate_triplets_gpu_spatial(connections, pos, cutoff):
-    """
-    GPU-accelerated spatial indexing for triplet generation.
-
-    Args:
-        connections (torch.Tensor): 2D tensor of atom connections (edges).
-        pos (torch.Tensor): Positions of atoms (3D coordinates).
-        cutoff (float): Distance threshold for filtering triplets.
-    Returns:
-        torch.Tensor: Tensor of valid triplets (i, j, k).
-    """
-    # Ensure tensors are on the same device
-    connections = connections.to(pos.device)
-
-    # Precompute pairwise distances (can be optimized further)
-    pairwise_distances = torch.cdist(pos, pos)
-
-    # Create adjacency matrix
-    num_atoms = pos.size(0)
-    adjacency = torch.zeros((num_atoms, num_atoms), dtype=torch.bool, device=pos.device)
-    adjacency[connections[:, 0], connections[:, 1]] = True
-    adjacency[connections[:, 1], connections[:, 0]] = True
-
-    # Preallocate triplets with a generous upper bound
-    max_triplets = connections.size(0) * num_atoms
-    triplets = torch.zeros((max_triplets, 3), dtype=torch.long, device=pos.device)
-    triplet_count = torch.tensor(0, dtype=torch.long, device=pos.device)
-
-    # CUDA kernel-style generation
-    @torch.no_grad()
-    def generate_triplets_cuda_kernel():
-        for idx in range(connections.size(0)):
-            i, j = connections[idx]
-
-            # Find potential k atoms (neighbors within cutoff)
-            potential_k = torch.where(
-                (pairwise_distances[j] < cutoff) &
-                (pairwise_distances[i] < cutoff) &
-                adjacency[j]
-            )[0]
-
-            # Filter out i from potential k
-            potential_k = potential_k[potential_k != i]
-
-            # Add valid triplets
-            for k in potential_k:
-                current_count = triplet_count.item()
-                triplets[current_count] = torch.tensor([i, j, k], device=pos.device)
-                triplet_count.add_(1)
-
-    # Run the generation
-    generate_triplets_cuda_kernel()
-
-    # Trim to actual number of triplets
-    return triplets[:triplet_count.item()]
-
-
-def generate_triplets_optimized(connections, pos, cutoff):
-    """
-    Highly optimized triplet generation with distance cutoff.
-
-    Args:
-        connections (torch.Tensor): 2D tensor of atom connections (edges).
-        pos (torch.Tensor): Positions of atoms (3D coordinates).
-        cutoff (float): Distance threshold for filtering triplets.
-    Returns:
-        torch.Tensor: Tensor of valid triplets (i, j, k).
-    """
-    # Number of atoms
-    num_atoms = pos.size(0)
-
-    # Create an efficient adjacency list representation
-    max_neighbors = torch.max(torch.bincount(connections[:, 0]))
-    neighbor_indices = torch.full((num_atoms, max_neighbors.item()), -1, dtype=torch.long, device=pos.device)
-    neighbor_counts = torch.zeros(num_atoms, dtype=torch.long, device=pos.device)
-
-    # Populate the adjacency list
-    for u, v in connections:
-        idx = neighbor_counts[u]
-        if idx < max_neighbors:
-            neighbor_indices[u, idx] = v
-            neighbor_counts[u] += 1
-
-    # Preallocate memory for triplets (with a generous upper bound)
-    max_possible_triplets = connections.size(0) * max_neighbors
-    triplets = torch.zeros((max_possible_triplets, 3), dtype=torch.long, device=pos.device)
-    triplet_count = torch.tensor(0, dtype=torch.long, device=pos.device)
-
-    # Kernel to generate triplets
-    @torch.no_grad()
-    def generate_triplets_kernel():
-        # Use torch.cuda.jit if using CUDA, otherwise this is a standard function
-        for idx in range(connections.size(0)):
-            i, j = connections[idx]
-
-            # Iterate through neighbors of j, excluding i
-            for k_idx in range(max_neighbors):
-                k = neighbor_indices[j, k_idx]
-
-                # Break if no more neighbors or invalid neighbor
-                if k == -1 or k == i:
-                    break
-
-                # Check distance cutoff
-                if torch.norm(pos[i] - pos[k]) < cutoff:
-                    # Atomic add to avoid race conditions
-                    current_count = triplet_count.item()
-                    triplets[current_count] = torch.tensor([i, j, k], device=pos.device)
-                    triplet_count.add_(1)
-
-    # Run the kernel
-    generate_triplets_kernel()
-
-    # Trim to actual number of triplets
-    final_triplets = triplets[:triplet_count.item()]
-
-    return final_triplets
+# def generate_triplets_gpu_spatial(connections, pos, cutoff):
+#     """
+#     GPU-accelerated spatial indexing for triplet generation.
+#
+#     Args:
+#         connections (torch.Tensor): 2D tensor of atom connections (edges).
+#         pos (torch.Tensor): Positions of atoms (3D coordinates).
+#         cutoff (float): Distance threshold for filtering triplets.
+#     Returns:
+#         torch.Tensor: Tensor of valid triplets (i, j, k).
+#     """
+#     # Ensure tensors are on the same device
+#     connections = connections.to(pos.device)
+#
+#     # Precompute pairwise distances (can be optimized further)
+#     pairwise_distances = torch.cdist(pos, pos)
+#
+#     # Create adjacency matrix
+#     num_atoms = pos.size(0)
+#     adjacency = torch.zeros((num_atoms, num_atoms), dtype=torch.bool, device=pos.device)
+#     adjacency[connections[:, 0], connections[:, 1]] = True
+#     adjacency[connections[:, 1], connections[:, 0]] = True
+#
+#     # Preallocate triplets with a generous upper bound
+#     max_triplets = connections.size(0) * num_atoms
+#     triplets = torch.zeros((max_triplets, 3), dtype=torch.long, device=pos.device)
+#     triplet_count = torch.tensor(0, dtype=torch.long, device=pos.device)
+#
+#     # CUDA kernel-style generation
+#     @torch.no_grad()
+#     def generate_triplets_cuda_kernel():
+#         for idx in range(connections.size(0)):
+#             i, j = connections[idx]
+#
+#             # Find potential k atoms (neighbors within cutoff)
+#             potential_k = torch.where(
+#                 (pairwise_distances[j] < cutoff) &
+#                 (pairwise_distances[i] < cutoff) &
+#                 adjacency[j]
+#             )[0]
+#
+#             # Filter out i from potential k
+#             potential_k = potential_k[potential_k != i]
+#
+#             # Add valid triplets
+#             for k in potential_k:
+#                 current_count = triplet_count.item()
+#                 triplets[current_count] = torch.tensor([i, j, k], device=pos.device)
+#                 triplet_count.add_(1)
+#
+#     # Run the generation
+#     generate_triplets_cuda_kernel()
+#
+#     # Trim to actual number of triplets
+#     return triplets[:triplet_count.item()]
+#
+#
+# def generate_triplets_optimized(connections, pos, cutoff):
+#     """
+#     Highly optimized triplet generation with distance cutoff.
+#
+#     Args:
+#         connections (torch.Tensor): 2D tensor of atom connections (edges).
+#         pos (torch.Tensor): Positions of atoms (3D coordinates).
+#         cutoff (float): Distance threshold for filtering triplets.
+#     Returns:
+#         torch.Tensor: Tensor of valid triplets (i, j, k).
+#     """
+#     # Number of atoms
+#     num_atoms = pos.size(0)
+#
+#     # Create an efficient adjacency list representation
+#     max_neighbors = torch.max(torch.bincount(connections[:, 0]))
+#     neighbor_indices = torch.full((num_atoms, max_neighbors.item()), -1, dtype=torch.long, device=pos.device)
+#     neighbor_counts = torch.zeros(num_atoms, dtype=torch.long, device=pos.device)
+#
+#     # Populate the adjacency list
+#     for u, v in connections:
+#         idx = neighbor_counts[u]
+#         if idx < max_neighbors:
+#             neighbor_indices[u, idx] = v
+#             neighbor_counts[u] += 1
+#
+#     # Preallocate memory for triplets (with a generous upper bound)
+#     max_possible_triplets = connections.size(0) * max_neighbors
+#     triplets = torch.zeros((max_possible_triplets, 3), dtype=torch.long, device=pos.device)
+#     triplet_count = torch.tensor(0, dtype=torch.long, device=pos.device)
+#
+#     # Kernel to generate triplets
+#     @torch.no_grad()
+#     def generate_triplets_kernel():
+#         # Use torch.cuda.jit if using CUDA, otherwise this is a standard function
+#         for idx in range(connections.size(0)):
+#             i, j = connections[idx]
+#
+#             # Iterate through neighbors of j, excluding i
+#             for k_idx in range(max_neighbors):
+#                 k = neighbor_indices[j, k_idx]
+#
+#                 # Break if no more neighbors or invalid neighbor
+#                 if k == -1 or k == i:
+#                     break
+#
+#                 # Check distance cutoff
+#                 if torch.norm(pos[i] - pos[k]) < cutoff:
+#                     # Atomic add to avoid race conditions
+#                     current_count = triplet_count.item()
+#                     triplets[current_count] = torch.tensor([i, j, k], device=pos.device)
+#                     triplet_count.add_(1)
+#
+#     # Run the kernel
+#     generate_triplets_kernel()
+#
+#     # Trim to actual number of triplets
+#     final_triplets = triplets[:triplet_count.item()]
+#
+#     return final_triplets
 
 
 def generate_triplets_optimized_extended(connections, pos, cutoff):
@@ -158,7 +158,6 @@ def generate_triplets_optimized_extended(connections, pos, cutoff):
     """
     # Number of atoms
     num_atoms = pos.size(0)
-
     # Create an efficient adjacency list representation
     max_neighbors = torch.max(torch.bincount(connections[:, 0]))
     neighbor_indices = torch.full((num_atoms, max_neighbors.item() * 2), -1, dtype=torch.long, device=pos.device)
@@ -210,57 +209,59 @@ def generate_triplets_optimized_extended(connections, pos, cutoff):
 
     return final_triplets[:, 0], final_triplets[:, 1], final_triplets[:, 2]
 
-class CollectAtomTriples(torch.nn.Module):
 
-    def forward(
-        self,
-        idx_i: torch.Tensor,
-    ) -> typing.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Using the neighbors contained within the cutoff shell, generate all unique pairs
-        of neighbors and convert them to index arrays. Applied to the neighbor arrays,
-        these arrays generate the indices involved in the atom triples.
+def generate_triplets_optimized_extended_cpu(connections, pos, cutoff):
+    """
+    Optimized triplet generation for CPU with distance cutoff.
+    Considers neighbors of both i and j as potential k atoms.
 
-        Example:
-            idx_j[idx_j_triples] -> j atom in triple
-            idx_j[idx_k_triples] -> k atom in triple
-            Rij[idx_j_triples] -> Rij vector in triple
-            Rij[idx_k_triples] -> Rik vector in triple
-        """
+    Args:
+        connections (torch.Tensor): 2D tensor of atom connections (edges), shape (n_edges, 2).
+        pos (torch.Tensor): Positions of atoms (3D coordinates), shape (n_atoms, 3).
+        cutoff (float): Distance threshold for filtering triplets.
+    Returns:
+        torch.Tensor: Tensor of valid triplets (i, j, k), shape (n_triplets, 3).
+    """
+    # Number of atoms
+    num_atoms = pos.size(0)
+    # Create an adjacency list for neighbors
+    adjacency_list = [[] for _ in range(num_atoms)]
 
-        _, n_neighbors = torch.unique_consecutive(idx_i, return_counts=True)
+    # Populate adjacency list
+    for u, v in connections:
+        adjacency_list[u.item()].append(v.item())
+        adjacency_list[v.item()].append(u.item())
 
-        offset = 0
-        idx_i_triples = ()
-        idx_jk_triples = ()
-        for idx in range(n_neighbors.shape[0]):
-            triples = torch.combinations(
-                torch.arange(offset, offset + n_neighbors[idx]), r=2
-            )
-            idx_i_triples += (torch.ones(triples.shape[0], dtype=torch.long) * idx,)
-            idx_jk_triples += (triples,)
-            offset += n_neighbors[idx]
+    # Preallocate memory for triplets (upper bound estimate)
+    triplets = []
 
-        idx_i_triples = torch.cat(idx_i_triples)
+    # Generate triplets
+    for idx in range(connections.size(0)):
+        i, j = connections[idx]
 
-        idx_jk_triples = torch.cat(idx_jk_triples)
-        idx_j_triples, idx_k_triples = idx_jk_triples.split(1, dim=-1)
+        # Get neighbors of j
+        neighbors_j = adjacency_list[j.item()]
 
-        return idx_i_triples, idx_j_triples.squeeze(-1), idx_k_triples.squeeze(-1)
+        # Check neighbors of j for valid k
+        for k in neighbors_j:
+            if k != i.item() and k != j.item():
+                # Check distance cutoff
+                if (torch.norm(pos[i] - pos[k]) < cutoff and
+                        torch.norm(pos[j] - pos[k]) < cutoff):
+                    triplets.append([i.item(), j.item(), k])
 
+    # Convert to tensor
+    triplets_tensor = torch.tensor(triplets, dtype=torch.long)
+    return triplets_tensor[:, 0], triplets_tensor[:, 1], triplets_tensor[:, 2]
 
 def custom_collate_fn(batch, distance, collect_triples=None, cutoff=15):
     # Convert the list of data objects to a batch
     batch = Batch.from_data_list(batch)
-
     # Perform the distance and triples computations
-    pos = batch.pos
-    batch_idx = batch.batch
-
-    edge_index, edge_weight, edge_vec = distance(pos, batch_idx)
+    edge_index, edge_weight, edge_vec = distance(batch.pos, batch.batch)
 
     if collect_triples is not None:
-        idx_i_triples, idx_j_triples, idx_k_triples = collect_triples(edge_index.T, pos, cutoff)
+        idx_i_triples, idx_j_triples, idx_k_triples = collect_triples(edge_index.T, batch.pos, cutoff)
 
 
         # Store the results in a dictionary
@@ -535,8 +536,9 @@ if __name__ == "__main__":
     # Iterate over the DataLoader and print some information
     for batch in train_loader:
         print("Batch:")
+        print(f"pos grad: {batch.pos.requires_grad}")
         # print(f"pos: {batch.pos}")
         # print(f"edge_index: {batch.edge_index}")
         # print(f"edge_weight: {batch.edge_weight}")
-        print(f"computed_values: {batch.computed_values}")
+        # print(f"computed_values: {batch.computed_values}")
         break  # Only process the first batch for testing

@@ -97,7 +97,8 @@ def get_argparse():
     parser.add_argument('--use-vector-representation', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
     parser.add_argument('--forces-based-on-energy', type=bool, default=False, help='Additional prior arguments. Needs to be a dictionary.')
     parser.add_argument('--close-far-split', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
-    parser.add_argument('--using_triplet_module', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--using-triplet-module', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--mlp-layer', type=int, default=3, help='Additional prior arguments. Needs to be a dictionary.')
 
     # architectural args
     parser.add_argument('--charge', type=bool, default=False, help='Model needs a total charge. Set this to True if your dataset contains charges and you want them passed down to the model.')
