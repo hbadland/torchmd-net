@@ -1,5 +1,6 @@
 from typing import Callable, Dict, Optional, Union, List
 import typing
+from networkx import incidence_matrix
 import rich
 
 import torch
@@ -148,6 +149,72 @@ def build_mlp(input_dim, hidden_dim, output_dim, num_layers, activation=nn.SiLU)
 	return nn.Sequential(*layers)
 
 
+def CollectAtomTriplesExtended(connections, pos, cutoff):
+    """
+    Highly optimized triplet generation with distance cutoff.
+    Considers neighbors of both i and j as potential k atoms.
+
+    Args:
+        connections (torch.Tensor): 2D tensor of atom connections (edges).
+        pos (torch.Tensor): Positions of atoms (3D coordinates).
+        cutoff (float): Distance threshold for filtering triplets.
+    Returns:
+        torch.Tensor: Tensor of valid triplets (i, j, k).
+    """
+    # Number of atoms
+    num_atoms = pos.size(0)
+    # Create an efficient adjacency list representation
+    max_neighbors = torch.max(torch.bincount(connections[:, 0]))
+    neighbor_indices = torch.full((num_atoms, max_neighbors.item() * 2), -1, dtype=torch.long, device=pos.device)
+    neighbor_counts = torch.zeros(num_atoms, dtype=torch.long, device=pos.device)
+
+    # Populate the adjacency list for both i and j
+    for u, v in connections:
+        # Add neighbors for both u and v
+        for atom in [u, v]:
+            for neighbor in [u, v]:
+                if atom != neighbor:
+                    idx = neighbor_counts[atom]
+                    if idx < max_neighbors * 2:
+                        neighbor_indices[atom, idx] = neighbor
+                        neighbor_counts[atom] += 1
+
+    # Preallocate memory for triplets (with a generous upper bound)
+    max_possible_triplets = connections.size(0) * max_neighbors * 2
+    triplets = torch.zeros((max_possible_triplets, 3), dtype=torch.long, device=pos.device)
+    triplet_count = torch.tensor(0, dtype=torch.long, device=pos.device)
+
+    # Kernel to generate triplets
+    @torch.no_grad()
+    def generate_triplets_kernel():
+        for idx in range(connections.size(0)):
+            i, j = connections[idx]
+
+            # Iterate through neighbors of both i and j
+            for k_idx in range(max_neighbors * 2):
+                k = neighbor_indices[j, k_idx]
+
+                # Break if no more neighbors or invalid neighbor
+                if k == -1 or k == i or k == j:
+                    continue
+
+                # Check distance cutoffs for all three atoms
+                if (torch.norm(pos[i] - pos[k]) < cutoff and
+                    torch.norm(pos[j] - pos[k]) < cutoff):
+                    # Atomic add to avoid race conditions
+                    current_count = triplet_count.item()
+                    triplets[current_count] = torch.tensor([i, j, k], device=pos.device)
+                    triplet_count.add_(1)
+
+    # Run the kernel
+    generate_triplets_kernel()
+
+    # Trim to actual number of triplets
+    final_triplets = triplets[:triplet_count.item()]
+
+    return final_triplets[:, 0], final_triplets[:, 1], final_triplets[:, 2]
+
+
 class CollectAtomTriples(torch.nn.Module):
 
 	def forward(
@@ -283,7 +350,8 @@ class TripleAtomsDistanceAdumbration(torch.nn.Module):
 
 	def __init__(self,
 	             orbitals_size: int = 22,
-	             keep_z: bool = False):
+	             keep_z: bool = False,
+              	 include_angles: bool = False):
 		"""
 		Args:
 				cutoff: cutoff radius
@@ -291,6 +359,7 @@ class TripleAtomsDistanceAdumbration(torch.nn.Module):
 		super(TripleAtomsDistanceAdumbration, self).__init__()
 		self.orbitals_size: int = orbitals_size
 		self.keep_z: bool = keep_z
+		self.angles: bool = include_angles
 
 	def forward(self,
 	            triple_idx_i: torch.Tensor,
@@ -314,7 +383,6 @@ class TripleAtomsDistanceAdumbration(torch.nn.Module):
 			idx_j[triple_idx_j].view(-1, 1),
 			idx_j[triple_idx_k].view(-1, 1)
 		], dim=1), positions)
-
 		atoms_electron_config = torch.tensor([generate_electron_configurations(i) for i in z.squeeze().tolist()],
 		                                     dtype=torch.float32,
 		                                     device=idx_j.device)
@@ -325,6 +393,7 @@ class TripleAtomsDistanceAdumbration(torch.nn.Module):
 		# triple_representation[:, 0:self.orbitals_size] = atoms_electron_config[triple_idx_i]
 		# triple_representation[:, self.orbitals_size:2 * self.orbitals_size] = atoms_electron_config[idx_j[triple_idx_j]]
 		# triple_representation[:, 2 * self.orbitals_size:3 * self.orbitals_size] = atoms_electron_config[idx_j[triple_idx_k]]
+		#
 		triple_representation[:, :3 * self.orbitals_size] = torch.cat(
 			[
 				atoms_electron_config[triple_idx_i],
@@ -332,6 +401,7 @@ class TripleAtomsDistanceAdumbration(torch.nn.Module):
 				atoms_electron_config[idx_j[triple_idx_k]]
 			],
 			dim=1)
+		# if trip
 
 		# Compute distances
 		# r_ij = torch.norm(positions[triple_idx_i] - positions[idx_j[triple_idx_j]], dim=1)
@@ -402,6 +472,40 @@ class TripleAtomsDistanceAdumbration(torch.nn.Module):
 
 		return transformed_coords
 
+	def symmetric_coordinates_to_distances(self, triplets, pos):
+		"""
+		Convert symmetric coordinates of triplets to distances between atoms.
+			$f(d_{ij}) + f(d_{ik}) + \oplus (i - j) \cdot (i - k)$
+
+		Args:
+			triplets (torch.Tensor): Tensor of triplets (i, j, k) of shape (N, 3).
+			pos (torch.Tensor): Positions of atoms (3D coordinates) of shape (M, 3).
+
+		Returns:
+			torch.Tensor: Distances between atoms in triplets of shape (N, 3).
+		"""
+		# Extract coordinates of the atoms in the triplets
+		a1_coords = pos[triplets[:, 0]]  # Shape: (N, 3)
+		a2_coords = pos[triplets[:, 1]]  # Shape: (N, 3)
+		a3_coords = pos[triplets[:, 2]]  # Shape: (N, 3)
+
+		# Calculate distances between atoms
+		d_ij = torch.norm(a2_coords - a1_coords, dim=1)  # Shape: (N,)
+		d_ik = torch.norm(a3_coords - a1_coords, dim=1)  # Shape: (N,)
+		d_jk = torch.norm(a3_coords - a2_coords, dim=1)  # Shape: (N,)
+  
+		# Calculate angles between atoms
+		if self.include_angles:
+			# Compute only angle for the center atom
+			vec_ij = a2_coords - a1_coords
+			vec_ik = a3_coords - a1_coords
+			vec_jk = a3_coords - a2_coords
+			
+			cos_theta_ijk = torch.sum(vec_ij * vec_ik, dim=1) / (d_ij * d_ik)
+   
+
+   
+			
 
 class MLPDeepSet(nn.Module):
 
@@ -538,8 +642,7 @@ class MLPDeepSet(nn.Module):
 	            batch: torch.Tensor,
 	            box: Optional[torch.Tensor] = None,
 	            q: Optional[torch.Tensor] = None,
-	            s: Optional[torch.Tensor] = None,
-	            extra_args: Optional[Dict[str, torch.Tensor]] = None) -> typing.Tuple[
+	            s: Optional[torch.Tensor] = None) -> typing.Tuple[
 		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 		edge_index, edge_weight, edge_vec = extra_args["edge_index"], extra_args["edge_weight"], extra_args["edge_vec"]
 		phi_ij = self.radial_basis(edge_weight)
