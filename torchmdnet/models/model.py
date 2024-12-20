@@ -473,12 +473,6 @@ class TorchMD_Net(nn.Module):
             Tuple[Tensor, Optional[Tensor]]: The output of the model and the derivative of the output with respect to the positions if derivative is True, None otherwise.
         """
         assert z.dim() == 1 and z.dtype == torch.long
-        # Processing extra args here
-        distance_args = None
-        if extra_args is not None:
-            if "computed_values" in extra_args:
-                distance_args = extra_args["computed_values"]
-                del extra_args["computed_values"]
 
         batch = torch.zeros_like(z) if batch is None else batch
 
@@ -486,7 +480,7 @@ class TorchMD_Net(nn.Module):
             pos.requires_grad_(True)
         # run the potentially wrapped representation model
         x, v, z, pos, batch = self.representation_model(
-            z, pos, batch, box=box, q=q, s=s, extra_args=distance_args
+            z, pos, batch, box=box, q=q, s=s,
         )
         # apply the output network
         x = self.output_model.pre_reduce(x, v, z, pos, batch)

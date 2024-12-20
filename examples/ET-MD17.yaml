@@ -2,13 +2,13 @@ activation: silu
 aggr: add
 atom_filter: -1
 attn_activation: silu
-batch_size: 8
+batch_size: 2
 coord_files: null
 cutoff_lower: 0.0
 cutoff_upper: 5.0
 dataset: MD17
 dataset_arg:
-  molecules: aspirin
+  molecules: ethanol
 dataset_root: ~/data
 derivative: true
 distance_influence: both
@@ -21,7 +21,7 @@ energy_files: null
 y_weight: 0.2
 force_files: null
 neg_dy_weight: 0.8
-inference_batch_size: 64
+#inference_batch_size: 64
 load_model: null
 log_dir: logs/
 lr: 0.001

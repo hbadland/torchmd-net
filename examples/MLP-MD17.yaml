@@ -5,7 +5,7 @@ attn_activation: silu
 batch_size: 8
 coord_files: null
 cutoff_lower: 0.0
-cutoff_upper: 5.0
+cutoff_upper: 1.0
 dataset: MD17
 dataset_arg:
   molecules: ethanol
@@ -16,16 +16,15 @@ early_stopping_patience: 300
 ema_alpha_neg_dy: 1.0
 ema_alpha_y: 0.05
 embed_files: null
-embedding_dimension: 2048
+embedding_dimension: 256
 energy_files: null
 y_weight: 0.2
 force_files: null
 neg_dy_weight: 0.8
-inference_batch_size: 64
 load_model: null
 log_dir: logs/
 lr: 0.001
-lr_factor: 0.8
+lr_factor: 0.2
 lr_min: 1.0e-07
 lr_patience: 30
 lr_warmup_steps: 1000
@@ -34,14 +33,14 @@ max_z: 100
 model: mlp_deepset
 n_atom_basis: 22
 base_cutoff: 0.0
-inner_cutoff: 5.0
-outer_cutoff: 15.0
+inner_cutoff: 1.2
+outer_cutoff: 2.5
 triplets_cutoff: 15.0
 use_vector_representation: true
 forces_based_on_energy: false
 close_far_split: true
 using_triplet_module: true
-mlp_layer: 16
+mlp_layer: 4
 neighbor_embedding: true
 pairwise_thread: true
 triples_thread: true
@@ -75,7 +74,7 @@ box_vecs: null
 charge: false
 spin: false
 vector_cutoff: true
-wandb_use: true
+wandb_use: false
 wandb_project: MLP-MD17-Ethanol
 tensorboard_use: false
 wandb_name: 16LS2048

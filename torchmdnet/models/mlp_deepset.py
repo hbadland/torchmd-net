@@ -47,40 +47,6 @@ def generate_electron_configurations(atomic_num: int) -> typing.List[int]:
 	return config
 
 
-# class Transform(torch.nn.Module):
-#     """
-#     Base class for all transforms.
-#     The base class ensures that the reference to the data and datamodule attributes are
-#     initialized.
-#     Transforms can be used as pre- or post-processing layers.
-#     They can also be used for other parts of a model, that need to be
-#     initialized based on data.
-
-#     To implement a new transform, override the forward method. Preprocessors are applied
-#     to single examples, while postprocessors operate on batches. All transforms should
-#     return a modified `inputs` dictionary.
-
-#     """
-
-#     def datamodule(self, value):
-#         """
-#         Extract all required information from data module automatically when using
-#         PyTorch Lightning integration. The transform should also implement a way to
-#         set these things manually, to make it usable independent of PL.
-
-#         Do not store the datamodule, as this does not work with torchscript conversion!
-#         """
-#         pass
-
-#     def forward(
-#         self,
-#         inputs: Dict[str, torch.Tensor],
-#     ) -> Dict[str, torch.Tensor]:
-#         raise NotImplementedError
-
-#     def teardown(self):
-#         pass
-
 def gaussian_rbf(inputs: torch.Tensor, offsets: torch.Tensor, widths: torch.Tensor):
 	coeff = -0.5 / torch.pow(widths, 2)
 	diff = inputs[..., None] - offsets
@@ -529,7 +495,7 @@ class MLPDeepSet(nn.Module):
 
 		self.n_atom_basis = n_atom_basis
 		self.inner_cutoff = inner_cutoff
-		self.inner_cutoff = outer_cutoff
+		self.outer_cutoff = outer_cutoff # ! This was set self.inner_cutoff by mistake
 		self.base_cutoff = base_cutoff
 		self.radial_basis = radial_basis
 		self.embedding_size = embedding_size
@@ -538,19 +504,20 @@ class MLPDeepSet(nn.Module):
 		self.forces_based_on_energy = forces_based_on_energy
 		self.close_far_split = close_far_split
 		self.using_triplet_module = using_triplet_module
+		self.only_oneside = True # ! This is for considering the adjacancy matrix
 
 		self.pair_atoms_coder = PairAtomsDistanceAdumbration()
 
-		# self.distance = OptimizedDistance(
-		#     base_cutoff,
-		#     outer_cutoff,
-		#     max_num_pairs=max_num_neighbors,
-		#     return_vecs=True,
-		#     loop=True,
-		#     box=None,
-		#     long_edge_index=True,
-		#     check_errors=True, # Set False if there are more than 10k neighbors and it throw an error. Check this thread: https://github.com/torchmd/torchmd-net/issues/203
-		# )
+		self.distance = OptimizedDistance(
+		    base_cutoff,
+		    outer_cutoff,
+		    max_num_pairs=max_num_neighbors,
+		    return_vecs=True,
+		    loop=True,
+		    box=None,
+		    long_edge_index=True,
+		    check_errors=True, # Set False if there are more than 10k neighbors and it throw an error. Check this thread: https://github.com/torchmd/torchmd-net/issues/203
+		)
 
 		try:
 			# Initialize MLPs
@@ -644,31 +611,46 @@ class MLPDeepSet(nn.Module):
 	            q: Optional[torch.Tensor] = None,
 	            s: Optional[torch.Tensor] = None) -> typing.Tuple[
 		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-		edge_index, edge_weight, edge_vec = extra_args["edge_index"], extra_args["edge_weight"], extra_args["edge_vec"]
+
+		edge_index, edge_weight, edge_vec = self.distance(pos, batch, box) # TODO: Some sort of sort algorithm have to be applied here to keep the index
+		edge_index = edge_index[:, edge_weight != 0]
+		edge_weight = edge_weight[edge_weight != 0] # * Prevent self loops (No distance between same an atom so it should be 0)
+		# edge_vec = edge_vec[edge_vec != 0]
+
+		if self.only_oneside:
+			edge_index = edge_index[:, ::2]
+			edge_weight = edge_weight[::2]
+			# edge_vec = edge_vec[::2]
+
+		sorted_index = torch.argsort(edge_index[0, :])
+		idx_i = edge_index[0, sorted_index]
+		idx_j = edge_index[1, sorted_index]
+		edge_weight = edge_weight[sorted_index]
+		# edge_vec = edge_vec[sorted_index]
+
 		phi_ij = self.radial_basis(edge_weight)
-		idx_i = edge_index[0, :]
-		idx_j = edge_index[1, :]
+
 
 		pair_atoms_repr = self.pair_atoms_coder(z, idx_i, idx_j, edge_weight, phi_ij)
 
 		q = self.process_pair_scalar(pair_atoms_repr, idx_i)
 		mu = self.process_pair_vector(pair_atoms_repr, idx_i) if self.use_vector_representation else None
 
-		if self.using_triplet_module:
-			idx_i_triples, idx_j_triples, idx_k_triples = extra_args["idx_i_triples"], extra_args["idx_j_triples"], \
-			extra_args["idx_k_triples"]
-			triplet_atoms_repr = self.triplet_atoms_coder(idx_i_triples, idx_j_triples, idx_k_triples, idx_i, idx_j, z,
-			                                              pos)
-			tq = self.triplet_scalar_pass(triplet_atoms_repr, idx_i, idx_i_triples)
-			tmu = self.triplet_vector_pass(triplet_atoms_repr, idx_i,
-			                               idx_i_triples) if self.use_vector_representation else None
-
-			return q+tq, mu+tmu, z, pos, batch
+		# if self.using_triplet_module:
+		# 	idx_i_triples, idx_j_triples, idx_k_triples = extra_args["idx_i_triples"], extra_args["idx_j_triples"], \
+		# 	extra_args["idx_k_triples"]
+		# 	triplet_atoms_repr = self.triplet_atoms_coder(idx_i_triples, idx_j_triples, idx_k_triples, idx_i, idx_j, z,
+		# 	                                              pos)
+		# 	tq = self.triplet_scalar_pass(triplet_atoms_repr, idx_i, idx_i_triples)
+		# 	tmu = self.triplet_vector_pass(triplet_atoms_repr, idx_i,
+		# 	                               idx_i_triples) if self.use_vector_representation else None
+		#
+		# 	return q+tq, mu+tmu, z, pos, batch
 		return q, mu, z, pos, batch
 
 	def process_pair_scalar(self, pair_atoms_repr: torch.Tensor, idx_i: torch.Tensor) -> torch.Tensor:
 		if self.close_far_split:
-			close_data_index = pair_atoms_repr[:, -1] < self.inner_cutoff
+			close_data_index = pair_atoms_repr[:, -1] < self.inner_cutoff # ! The tremendous bug was here !!!!!
 			far_data_index = pair_atoms_repr[:, -1] >= self.inner_cutoff
 			return self.close_far_pair_scalar_pass(pair_atoms_repr, idx_i, close_data_index, far_data_index)
 		else:

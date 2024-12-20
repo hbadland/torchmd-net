@@ -302,35 +302,15 @@ class DataModule(LightningDataModule):
             batch_size = self.hparams["inference_batch_size"]
 
         shuffle = stage == "train"
-        collect_triples = None
-        distance = None
-        if self.hparams["pairwise_thread"]:
-            distance = self.distance
-            if self.hparams["triples_thread"]:
-                collect_triples = self.collect_triples
 
-            def collate_fn(batch):
-                return custom_collate_fn(batch, distance, collect_triples, self.hparams["triplets_cutoff"]) \
-                    if collect_triples is not None else custom_collate_fn(batch, distance, None)
-            
-            dl = CustomDataLoader(
-                    dataset=dataset,
-                    batch_size=batch_size,
-                    num_workers=self.hparams["num_workers"],
-                    persistent_workers=False,
-                    pin_memory=True,
-                    shuffle=shuffle,
-                    collate_fn=collate_fn,
-                )
-        else:
-            dl = DataLoader(
-                dataset=dataset,
-                batch_size=batch_size,
-                num_workers=self.hparams["num_workers"],
-                persistent_workers=False,
-                pin_memory=True,
-                shuffle=shuffle,
-            )
+        dl = DataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            num_workers=self.hparams["num_workers"],
+            persistent_workers=False,
+            pin_memory=True,
+            shuffle=shuffle,
+        )
 
         if store_dataloader:
             self._saved_dataloaders[stage] = dl
