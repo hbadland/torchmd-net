@@ -489,6 +489,9 @@ class MLPDeepSet(nn.Module):
 			forces_based_on_energy: bool = False,
 			close_far_split: bool = True,
 			using_triplet_module: bool = False,
+			rbf_type: str = "gauss",
+			trainable_rbf: bool = False,
+			dtype: torch.dtype = torch.float32,
 	):
 
 		super(MLPDeepSet, self).__init__()
@@ -499,6 +502,7 @@ class MLPDeepSet(nn.Module):
 		self.base_cutoff = base_cutoff
 		self.radial_basis = radial_basis
 		self.embedding_size = embedding_size
+		self.dtype = dtype
 
 		self.use_vector_representation = use_vector_representation
 		self.forces_based_on_energy = forces_based_on_energy
@@ -507,6 +511,9 @@ class MLPDeepSet(nn.Module):
 		self.only_oneside = True # ! This is for considering the adjacancy matrix
 
 		self.pair_atoms_coder = PairAtomsDistanceAdumbration()
+		self.pair_and_distance_transform = torch.nn.Linear(2 * self.n_atom_basis + 1 + self.radial_basis.n_rbf,
+		                                                   self.embedding_size,
+		                                                   dtype=dtype)
 
 		self.distance = OptimizedDistance(
 		    base_cutoff,
@@ -519,9 +526,16 @@ class MLPDeepSet(nn.Module):
 		    check_errors=True, # Set False if there are more than 10k neighbors and it throw an error. Check this thread: https://github.com/torchmd/torchmd-net/issues/203
 		)
 
+		self.distance_expansion = rbf_class_mapping[rbf_type](
+			base_cutoff, outer_cutoff, self.radial_basis.n_rbf, trainable_rbf
+		)
+		self.distance_proj = nn.Linear(self.radial_basis.n_rbf, embedding_size, dtype=dtype)
+		self.combine = nn.Linear(embedding_size + 1 + 65, embedding_size, dtype=dtype)
+		self.cutoff = CosineCutoff(base_cutoff, outer_cutoff)
+
 		try:
 			# Initialize MLPs
-			in_size: int = 45 + self.radial_basis.n_rbf
+			in_size: int = embedding_size
 			if self.close_far_split:
 				self.inner_scalar_mlp = build_mlp(in_size, embedding_size, embedding_size, mlp_layer,
 				                                  activation=nn.SiLU)
@@ -613,25 +627,52 @@ class MLPDeepSet(nn.Module):
 		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
 		edge_index, edge_weight, edge_vec = self.distance(pos, batch, box) # TODO: Some sort of sort algorithm have to be applied here to keep the index
-		edge_index = edge_index[:, edge_weight != 0]
-		edge_weight = edge_weight[edge_weight != 0] # * Prevent self loops (No distance between same an atom so it should be 0)
+		edge_attr = self.distance_expansion(edge_weight)
+
+		# edge_index = edge_index[:, edge_weight != 0]
+		# edge_weight = edge_weight[edge_weight != 0] # * Prevent self loops (No distance between same an atom so it should be 0)
 		# edge_vec = edge_vec[edge_vec != 0]
+		mask = edge_index[0] != edge_index[1]
+		if not mask.all():
+			edge_index = edge_index[:, mask]
+			edge_weight = edge_weight[mask]
+			edge_attr = edge_attr[mask]
 
 		if self.only_oneside:
 			edge_index = edge_index[:, ::2]
 			edge_weight = edge_weight[::2]
-			# edge_vec = edge_vec[::2]
+			edge_attr = edge_attr[::2]
 
-		sorted_index = torch.argsort(edge_index[0, :])
-		idx_i = edge_index[0, sorted_index]
-		idx_j = edge_index[1, sorted_index]
-		edge_weight = edge_weight[sorted_index]
+		# edge_vec = edge_vec[::2]
+
+		# Compute the cutoff and distance projection
+		C = self.cutoff(edge_weight)
+		W = self.distance_proj(edge_attr) * C.view(-1, 1)
+
+		# Concatenate W and C
+		combined = torch.cat([W, C.view(-1, 1)], dim=1)
+
+		# Get the embeddings of the atomic numbers
+		# x_neighbors = self.embedding(z)
+
+		# Combine the original node features with the embeddings
+
+
+
+		# sorted_index = torch.argsort(edge_index[0, :])
+		# idx_i = edge_index[0, sorted_index]
+		# idx_j = edge_index[1, sorted_index]
+		# edge_weight = edge_weight[sorted_index]
 		# edge_vec = edge_vec[sorted_index]
 
+		idx_i = edge_index[0, :]
+		idx_j = edge_index[1, :]
 		phi_ij = self.radial_basis(edge_weight)
 
 
 		pair_atoms_repr = self.pair_atoms_coder(z, idx_i, idx_j, edge_weight, phi_ij)
+
+		pair_atoms_repr = self.combine(torch.cat([pair_atoms_repr, combined], dim=1))
 
 		q = self.process_pair_scalar(pair_atoms_repr, idx_i)
 		mu = self.process_pair_vector(pair_atoms_repr, idx_i) if self.use_vector_representation else None
