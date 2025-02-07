@@ -25,6 +25,7 @@ from .qm9q import QM9q
 from .spice import SPICE
 from .genentech import GenentechTorsions
 from .maceoff import MACEOFF
+from .md_custom import MDCustom
 
 __all__ = [
     "Ace",
@@ -51,4 +52,5 @@ __all__ = [
     "Tripeptides",
     "WaterBox",
     "MACEOFF",
+    "MDCustom",
 ]

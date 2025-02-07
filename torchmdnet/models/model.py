@@ -97,6 +97,30 @@ def create_model(args, prior_model=None, mean=None, std=None):
             vector_cutoff=args["vector_cutoff"],
             **shared_args,
         )
+    elif args["model"] == "equivariant-transformer-x":
+        from torchmdnet.models.torchmd_et_rep import TorchMD_ET_X
+
+        is_equivariant = True
+        representation_model = TorchMD_ET_X(
+            attn_activation=args["attn_activation"],
+            num_heads=args["num_heads"],
+            distance_influence=args["distance_influence"],
+            neighbor_embedding=args["neighbor_embedding"],
+            vector_cutoff=args["vector_cutoff"],
+            **shared_args,
+        )
+    elif args["model"] == "et_deepset":
+        from torchmdnet.models.torchmd_deepset import TorchMD_MLP
+
+        is_equivariant = False
+        representation_model = TorchMD_MLP(
+            attn_activation=args["attn_activation"],
+            num_heads=args["num_heads"],
+            distance_influence=args["distance_influence"],
+            neighbor_embedding=args["neighbor_embedding"],
+            vector_cutoff=args["vector_cutoff"],
+            **shared_args,
+        )
     elif args["model"] == "tensornet":
         from torchmdnet.models.tensornet import TensorNet
 
@@ -124,6 +148,20 @@ def create_model(args, prior_model=None, mean=None, std=None):
             forces_based_on_energy=args["forces_based_on_energy"],
             close_far_split=args["close_far_split"],
             using_triplet_module=args["using_triplet_module"]
+        )
+
+    elif args["model"] == "cmret":
+        from torchmdnet.models.cmret import CMRETModel
+
+        is_equivariant = False
+        representation_model = CMRETModel(
+            cutoff=args["model_arg"]["cutoff"],
+            n_kernel=args["model_arg"]["n_kernel"],
+            n_atom_basis=args["model_arg"]["n_atom_basis"],
+            n_interaction=args["model_arg"]["n_interaction"],
+            rbf_type=args["model_arg"]["rbf_type"],
+            num_head=args["model_arg"]["num_head"],
+            temperature_coeff=args["model_arg"]["temperature_coeff"],
         )
     else:
         raise ValueError(f'Unknown architecture: {args["model"]}')
@@ -508,7 +546,8 @@ class TorchMD_Net(nn.Module):
         if self.prior_model is not None:
             for prior in self.prior_model:
                 y = prior.post_reduce(y, z, pos, batch, box, extra_args)
-        # compute gradients with respect to coordinates
+        # self.derivative = False # Turn it false here when inference with ipynb inference is needed
+        # compute gradients with respect t-o coordinates
         if self.derivative:
             grad_outputs: List[Optional[torch.Tensor]] = [torch.ones_like(y)]
             dy = grad(

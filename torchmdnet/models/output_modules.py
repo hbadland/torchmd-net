@@ -16,7 +16,39 @@ from torchmdnet.utils import atomic_masses
 from torchmdnet.extensions import is_current_stream_capturing
 from warnings import warn
 
-__all__ = ["Scalar", "DipoleMoment", "ElectronicSpatialExtent"]
+__all__ = ["Scalar", "DipoleMoment", "ElectronicSpatialExtent", "ReturnValue"]
+
+
+class ReturnValue(nn.Module, metaclass=ABCMeta):
+    """Base class for output models.
+
+    Derive this class to make custom output models.
+    As an example, have a look at the :py:mod:`torchmdnet.output_modules.Scalar` output model.
+    """
+
+    def __init__(self,
+         hidden_channels,
+        activation="silu",
+        allow_prior_model=True,
+        reduce_op="sum",
+        dtype=torch.float,
+        **kwargs):
+        super(ReturnValue, self).__init__()
+        self.allow_prior_model = True
+        self.reduce_op = "sum"
+        self.dim_size = 0
+
+    def reset_parameters(self):
+        pass
+
+    def pre_reduce(self, x, v, z, pos, batch):
+        return x
+
+    def reduce(self, x, batch):
+        return x
+
+    def post_reduce(self, x):
+        return x
 
 
 class OutputModel(nn.Module, metaclass=ABCMeta):

@@ -2,15 +2,16 @@ activation: silu
 aggr: add
 atom_filter: -1
 attn_activation: silu
-batch_size: 8
+batch_size: 1
 coord_files: null
 cutoff_lower: 0.0
 cutoff_upper: 1.0
 dataset: MD17
 dataset_arg:
+#  molecules: aspirin,benzene,malonaldehyde,naphtalene,toluene,salicylic_acid,uracil,paracetamol
   molecules: ethanol
 dataset_root: ~/data
-derivative: false
+derivative: true
 distance_influence: both
 early_stopping_patience: 300
 ema_alpha_neg_dy: 1.0
@@ -39,11 +40,11 @@ triplets_cutoff: 15.0
 use_vector_representation: true
 forces_based_on_energy: false
 close_far_split: true
-using_triplet_module: true
+using_triplet_module: false
 mlp_layer: 4
 neighbor_embedding: true
 pairwise_thread: true
-triples_thread: true
+triples_thread: false
 return_vecs: true
 loop: true
 long_edge_index: true
@@ -75,6 +76,6 @@ charge: false
 spin: false
 vector_cutoff: true
 wandb_use: false
-wandb_project: MLP-MD17-Ethanol
-tensorboard_use: false
-wandb_name: 16LS2048
+wandb_project: MD17-Mix_No_Ethanol
+tensorboard_use: true
+wandb_name: MLP_Mix_No_Ethanol_BS_100

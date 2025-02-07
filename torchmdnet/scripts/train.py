@@ -5,6 +5,7 @@
 import sys
 import os
 import yaml
+import random
 import argparse
 import logging
 import torch
@@ -23,7 +24,9 @@ from torchmdnet.models.model import create_prior_models
 from torchmdnet.models.utils import rbf_class_mapping, act_class_mapping, dtype_mapping
 from torchmdnet.utils import LoadFromFile, LoadFromCheckpoint, save_argparse, number
 from lightning_utilities.core.rank_zero import rank_zero_warn
-
+from torch.utils.data import ConcatDataset, Subset, SubsetRandomSampler, random_split
+from torch_geometric.data import DataLoader, InMemoryDataset
+from pytorch_lightning import LightningDataModule
 
 def get_argparse():
     # fmt: off
@@ -99,7 +102,7 @@ def get_argparse():
     parser.add_argument('--close-far-split', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
     parser.add_argument('--using-triplet-module', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
     parser.add_argument('--mlp-layer', type=int, default=3, help='Additional prior arguments. Needs to be a dictionary.')
-
+    parser.add_argument("--model-arg", default=None, help="Additional model arguments. Needs to be a dictionary.")
     # architectural args
     parser.add_argument('--charge', type=bool, default=False, help='Model needs a total charge. Set this to True if your dataset contains charges and you want them passed down to the model.')
     parser.add_argument('--spin', type=bool, default=False, help='Model needs a spin state. Set this to True if your dataset contains spin states and you want them passed down to the model.')
@@ -181,9 +184,40 @@ def main():
     pl.seed_everything(args.seed, workers=True)
 
     # initialize data module
-    data = DataModule(args)
-    data.prepare_data()
-    data.setup("fit")
+    if args.dataset_arg.get("molecules") and len(args.dataset_arg.get("molecules").split(",")) > 1:
+        subset_size: int = args.train_size + args.val_size + args.test_size
+        molecules = args.dataset_arg["molecules"].split(",")
+        datasets_list: list = []
+        std: list = []
+        mean: list = []
+        for mol in molecules:
+            args.dataset_arg["molecules"] = mol
+            data_module = DataModule(args)  # Your existing DataModule class
+            data_module.prepare_data()
+            data_module.setup("fit")  # Prepare data for the 'fit' stage
+            datasets_list.append(data_module.dataset[torch.randperm(len(data_module.dataset))[:subset_size]])
+            std.append(data_module.std)
+            mean.append(data_module.mean)
+
+        data_conc = ConcatDataset(datasets_list)
+        mol_num = len(molecules)
+        args.train_size = args.train_size * mol_num
+        args.val_size = args.val_size * mol_num
+        args.test_size = args.test_size * mol_num
+
+
+        data = DataModule(
+            args,
+            data_conc,
+        )
+
+        data.prepare_data()
+        data.setup("fit")
+
+    else:
+        data = DataModule(args)
+        data.prepare_data()
+        data.setup("fit")
 
     prior_models = create_prior_models(vars(args), data.dataset)
     args.prior_args = [p.get_init_args() for p in prior_models]

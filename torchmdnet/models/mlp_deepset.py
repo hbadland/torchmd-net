@@ -1,10 +1,10 @@
 from typing import Callable, Dict, Optional, Union, List
 import typing
-from networkx import incidence_matrix
 import rich
 
 import torch
 import torch.nn as nn
+import torch_geometric as tg
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, zeros_
 from torch.nn import init
@@ -22,6 +22,86 @@ from torchmdnet.models.utils import (
 # from src.properties import properties
 
 __all__ = ["MLPDeepSet"]
+
+
+ELEMENTLOGPRIME = {'Na': 0.301029995663981, 'K': 0.477121254719662,
+                   'H': 0.698970004336019, 'Rb': 0.845098040014257,
+                   'Li': 1.04139268515823, 'Cs': 1.11394335230684,
+                   'Fr': 1.23044892137827, 'Ca': 1.27875360095283,
+                   'Mg': 1.36172783601759, 'Ba': 1.46239799789896,
+                   'Sr': 1.49136169383427, 'Be': 1.568201724067,
+                   'Ra': 1.61278385671974, 'Y': 1.63346845557959,
+                   'Sc': 1.67209785793572, 'Lu': 1.72427586960079,
+                   'Lr': 1.77085201164214, 'Ti': 1.78532983501077,
+                   'Zr': 1.82607480270083, 'Hf': 1.85125834871908,
+                   'Rf': 1.86332286012046, 'V': 1.89762709129044,
+                   'Nb': 1.91907809237607, 'Ta': 1.94939000664491,
+                   'Db': 1.98677173426624, 'Cr': 2.00432137378264,
+                   'W': 2.01283722470517, 'Mo': 2.02938377768521,
+                   'Sg': 2.03742649794062, 'Mn': 2.05307844348342,
+                   'Re': 2.10380372095596, 'Tc': 2.11727129565576,
+                   'Bh': 2.13672056715641, 'Fe': 2.14301480025409,
+                   'Os': 2.17318626841227, 'Ru': 2.17897694729317,
+                   'Hs': 2.19589965240923, 'Co': 2.21218760440396,
+                   'Rh': 2.22271647114758, 'Ir': 2.2380461031288,
+                   'Mt': 2.25285303097989, 'Ni': 2.25767857486918,
+                   'Pd': 2.28103336724773, 'Pt': 2.28555730900777,
+                   'Ds': 2.29446622616159, 'Cu': 2.29885307640971,
+                   'Ag': 2.32428245529769, 'Au': 2.34830486304816,
+                   'Rg': 2.35602585719312, 'Zn': 2.35983548233989,
+                   'Cd': 2.36735592102602, 'Hg': 2.37839790094814,
+                   'Cn': 2.38201704257487, 'Al': 2.39967372148104,
+                   'Ga': 2.40993312333129, 'B': 2.41995574848976,
+                   'Tl': 2.42975228000241, 'In': 2.43296929087441,
+                   'Nh': 2.44247976906445, 'Si': 2.44870631990508,
+                   'C': 2.45178643552429, 'Pb': 2.46686762035411,
+                   'Sn': 2.48713837547719, 'Ge': 2.49276038902684,
+                   'Fl': 2.49554433754645, 'P': 2.50105926221775,
+                   'N': 2.51982799377572, 'As': 2.52762990087134,
+                   'Sb': 2.54032947479087, 'Bi': 2.54282542695918,
+                   'Mc': 2.54777470538782, 'O': 2.55509444857832,
+                   'S': 2.56466606425209, 'Se': 2.57170883180869,
+                   'Te': 2.57863920996807, 'Po': 2.58319877396862,
+                   'Lv': 2.58994960132571, 'F': 2.59879050676312,
+                   'Cl': 2.60314437262018, 'Br': 2.61172330800734,
+                   'I': 2.6222140229663, 'At': 2.62428209583567,
+                   'Ts': 2.63447727016073, 'Ar': 2.63648789635337,
+                   'He': 2.64246452024212, 'Ne': 2.64640372622307,
+                   'Kr': 2.65224634100332, 'Xe': 2.65991620006985,
+                   'Rn': 2.66370092538965, 'Og': 2.66558099101795,
+                   'Ce': 2.66931688056611, 'Nd': 2.68033551341456,
+                   'La': 2.68752896121463, 'Th': 2.69108149212297,
+                   'Pr': 2.69810054562339, 'Sm': 2.70156798505593,
+                   'Gd': 2.70671778233676, 'Dy': 2.71683772329952,
+                   'Er': 2.71850168886727, 'Yb': 2.73319726510657,
+                   'U': 2.73798732633343, 'Eu': 2.74585519517373,
+                   'Ho': 2.75050839485135, 'Tb': 2.75511226639507,
+                   'Tm': 2.75663610824585, 'Pa': 2.76117581315573,
+                   'Ac': 2.76863810124761, 'Pu': 2.77305469336426,
+                   'Np': 2.77742682238931, 'Pm': 2.77887447200274,
+                   'Am': 2.78318869107526, 'Cm': 2.78746047451841,
+                   'Bk': 2.79028516403324, 'Cf': 2.79169064902012,
+                   'Es': 2.80002935924413, 'Fm': 2.80685802951882,
+                   'Md': 2.80821097292422, 'No': 2.8109042806687}
+
+ATOMIC_NUMBERS = {
+    'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'Ne': 10,
+    'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17, 'Ar': 18, 'K': 19, 'Ca': 20,
+    'Sc': 21, 'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25, 'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30,
+    'Ga': 31, 'Ge': 32, 'As': 33, 'Se': 34, 'Br': 35, 'Kr': 36, 'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40,
+    'Nb': 41, 'Mo': 42, 'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48, 'In': 49, 'Sn': 50, 'Sb': 51,
+    'Te': 52, 'I': 53, 'Xe': 54, 'Cs': 55, 'Ba': 56, 'La': 57, 'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61,
+    'Sm': 62, 'Eu': 63, 'Gd': 64, 'Tb': 65, 'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71,
+    'Hf': 72, 'Ta': 73, 'W': 74, 'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81,
+    'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86, 'Fr': 87, 'Ra': 88, 'Ac': 89, 'Th': 90, 'Pa': 91,
+    'U': 92, 'Np': 93, 'Pu': 94, 'Am': 95, 'Cm': 96, 'Bk': 97, 'Cf': 98, 'Es': 99, 'Fm': 100, 'Md': 101,
+    'No': 102, 'Lr': 103, 'Rf': 104, 'Db': 105, 'Sg': 106, 'Bh': 107, 'Hs': 108, 'Mt': 109, 'Ds': 110,
+    'Rg': 111, 'Cn': 112, 'Nh': 113, 'Fl': 114, 'Mc': 115, 'Lv': 116, 'Ts': 117, 'Og': 118
+}
+
+# Convert the dictionary using atomic numbers as keys
+Z_LOGPRIME = {ATOMIC_NUMBERS[element]: value for element, value in ELEMENTLOGPRIME.items()}
+
 
 ORBITALS = "1s 2s 2p 3s 3p 4s 3d 4p 5s 4d 5p 6s 4f 5d 6p 7s 5f 6d 7p 6f 7d 7f".split()
 POSSIBLE_ELECTRONS = dict(s=2, p=6, d=10, f=14)
@@ -277,10 +357,10 @@ class PairAtomsDistanceAdumbration(torch.nn.Module):
 
 	def forward(self,
 	            z: torch.Tensor,
+	            x: torch.Tensor,
 	            idx_i: torch.Tensor,
 	            idx_j: torch.Tensor,
 	            d_ij: torch.Tensor,
-	            phi_ij: torch.Tensor,
 	            ):
 		"""
 		Create a representation of molecules based on the distance between atoms.
@@ -297,16 +377,17 @@ class PairAtomsDistanceAdumbration(torch.nn.Module):
 		"""
 		# Initialize the tensor
 		representation: torch.Tensor = torch.zeros(d_ij.size(0),
-		                                           2 * self.orbitals_size + 1 + phi_ij.size(-1),
+		                                           256 * 2 + 2 * self.orbitals_size + 1,
 		                                           device=d_ij.device)
 		atoms_electron_config = torch.tensor(
 			[generate_electron_configurations(i) for i in z.squeeze().tolist()],
 			dtype=torch.float32,
 			device=d_ij.device)
 		representation[:, -1] = torch.squeeze(d_ij)
-		representation[:, :self.orbitals_size] = atoms_electron_config[idx_i]
-		representation[:, self.orbitals_size:2 * self.orbitals_size] = atoms_electron_config[idx_j]
-		representation[:, 2 * self.orbitals_size:-1] = torch.squeeze(phi_ij)
+		representation[:, :256] = x[idx_i]
+		representation[:, 256:512] = x[idx_j]
+		representation[:, 512:512+self.orbitals_size] = atoms_electron_config[idx_i]
+		representation[:, 512+self.orbitals_size:512+2 * self.orbitals_size] = atoms_electron_config[idx_j]
 		# return the representation
 		return representation
 
@@ -483,7 +564,7 @@ class MLPDeepSet(nn.Module):
 			outer_cutoff: float,
 			max_num_neighbors: int = 32,
 			embedding_size: int = 256,
-			mlp_layer: int = 20,
+			mlp_layer: int = 5,
 			radial_basis: nn.Module = GaussianRBF(20, 15.0),
 			use_vector_representation: bool = False,
 			forces_based_on_energy: bool = False,
@@ -530,8 +611,13 @@ class MLPDeepSet(nn.Module):
 			base_cutoff, outer_cutoff, self.radial_basis.n_rbf, trainable_rbf
 		)
 		self.distance_proj = nn.Linear(self.radial_basis.n_rbf, embedding_size, dtype=dtype)
-		self.combine = nn.Linear(embedding_size + 1 + 65, embedding_size, dtype=dtype)
+		self.combine = nn.Linear(814, embedding_size, dtype=dtype)
 		self.cutoff = CosineCutoff(base_cutoff, outer_cutoff)
+		self.embedding = nn.Embedding(100, embedding_size, dtype=dtype)
+
+		self.neighbor_embedding = NeighborEmbedding(embedding_size, 20, base_cutoff, outer_cutoff, 100, dtype)
+
+		self.conv_msgp = tg.nn.SimpleConv()
 
 		try:
 			# Initialize MLPs
@@ -617,6 +703,9 @@ class MLPDeepSet(nn.Module):
 						if layer.bias is not None:
 							init.zeros_(layer.weight)
 
+		self.embedding.reset_parameters()
+		self.conv_msgp.reset_parameters()
+
 	def forward(self,
 	            z: torch.Tensor,
 	            pos: torch.Tensor,
@@ -626,7 +715,15 @@ class MLPDeepSet(nn.Module):
 	            s: Optional[torch.Tensor] = None) -> typing.Tuple[
 		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
+		# x = torch.tensor([Z_LOGPRIME[atom.item()] for atom in z], device=z.device)
+
+		x = self.embedding(z)
+
 		edge_index, edge_weight, edge_vec = self.distance(pos, batch, box) # TODO: Some sort of sort algorithm have to be applied here to keep the index
+		# x_0 = self.conv_msgp(zz, edge_index)
+
+
+		# print(x_0)
 		edge_attr = self.distance_expansion(edge_weight)
 
 		# edge_index = edge_index[:, edge_weight != 0]
@@ -667,16 +764,15 @@ class MLPDeepSet(nn.Module):
 
 		idx_i = edge_index[0, :]
 		idx_j = edge_index[1, :]
-		phi_ij = self.radial_basis(edge_weight)
+		# phi_ij = self.radial_basis(edge_weight)
+		msx = self.neighbor_embedding(z, x, edge_index, edge_weight, edge_attr)
 
-
-		pair_atoms_repr = self.pair_atoms_coder(z, idx_i, idx_j, edge_weight, phi_ij)
+		pair_atoms_repr = self.pair_atoms_coder(z, msx, idx_i, idx_j, edge_weight)
 
 		pair_atoms_repr = self.combine(torch.cat([pair_atoms_repr, combined], dim=1))
 
 		q = self.process_pair_scalar(pair_atoms_repr, idx_i)
 		mu = self.process_pair_vector(pair_atoms_repr, idx_i) if self.use_vector_representation else None
-
 		# if self.using_triplet_module:
 		# 	idx_i_triples, idx_j_triples, idx_k_triples = extra_args["idx_i_triples"], extra_args["idx_j_triples"], \
 		# 	extra_args["idx_k_triples"]
@@ -794,7 +890,7 @@ if __name__ == "__main__":
 	                   using_triplet_module=True)
 	# Generate random input
 	z = torch.randint(1, 18, (100, 1))
-	print(z.size())
+	# print(z.size())
 	pos = torch.randint(0, 3, (18, 3), dtype=torch.float32)
 	batch = torch.zeros(100, dtype=torch.long)
 	# box = torch.rand(3, 3)
@@ -808,7 +904,7 @@ if __name__ == "__main__":
 	end_time = time.time()
 	# Compute the elapsed time
 	elapsed_time = end_time - start_time
-	print(f"Time taken: {elapsed_time:.6f} seconds")
-	rich.print(edge_index)
-	rich.print(edge_weight)
-	rich.print(edge_vec)
+	# print(f"Time taken: {elapsed_time:.6f} seconds")
+	# rich.print(edge_index)
+	# rich.print(edge_weight)
+	# rich.print(edge_vec)

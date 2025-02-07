@@ -2,13 +2,14 @@ activation: silu
 aggr: add
 atom_filter: -1
 attn_activation: silu
-batch_size: 2
+batch_size: 20
 coord_files: null
 cutoff_lower: 0.0
 cutoff_upper: 5.0
 dataset: MD17
 dataset_arg:
-  molecules: ethanol
+  molecules:  aspirin,benzene,malonaldehyde,naphtalene,toluene,salicylic_acid,uracil,paracetamol
+#  molecules:  ethanol
 dataset_root: ~/data
 derivative: true
 distance_influence: both
@@ -49,13 +50,18 @@ reduce_op: add
 save_interval: 10
 splits: null
 standardize: true
-test_interval: 10
-test_size: null
-train_size: 950
+test_interval: 5
+test_size: 100
+train_size: 1000
 trainable_rbf: false
-val_size: 50
+val_size: 100
 weight_decay: 0.0
 box_vecs: null
 charge: false
 spin: false
 vector_cutoff: true
+wandb_use: false
+wandb_project: MD17-Mix_No_Ethanol
+tensorboard_use: true
+wandb_name: ET-Transformer-Mix_No_Ethanol
+#best_model_path: /home/amir/Projects/torchmd-net/logs/epoch=2999-val_loss=0.5655-test_loss=0.4790.ckpt

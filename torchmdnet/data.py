@@ -213,6 +213,12 @@ class DataModule(LightningDataModule):
                     self.hparams["force_files"],
                     self.hparams["dataset_preload_limit"],
                 )
+            elif self.hparams["dataset"] == "MDCustom":
+                self.dataset = datasets.MDCustom(
+                    self.hparams["dataset_arg"]["root"],
+                    self.hparams["dataset_arg"]["start"],
+                    self.hparams["dataset_arg"]["end"],
+                )
             else:
                 dataset_arg = {}
                 if self.hparams["dataset_arg"] is not None:
