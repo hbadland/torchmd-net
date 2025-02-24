@@ -109,17 +109,20 @@ def create_model(args, prior_model=None, mean=None, std=None):
             vector_cutoff=args["vector_cutoff"],
             **shared_args,
         )
-    elif args["model"] == "et_deepset":
-        from torchmdnet.models.torchmd_deepset import TorchMD_MLP
+    elif args["model"] == "deepset":
+        from torchmdnet.models.deepset import DeepSet
 
-        is_equivariant = False
-        representation_model = TorchMD_MLP(
-            attn_activation=args["attn_activation"],
-            num_heads=args["num_heads"],
-            distance_influence=args["distance_influence"],
-            neighbor_embedding=args["neighbor_embedding"],
-            vector_cutoff=args["vector_cutoff"],
-            **shared_args,
+        is_equivariant = True
+        representation_model = DeepSet(
+            base_cutoff=args["base_cutoff"],
+            outer_cutoff=args["outer_cutoff"],
+            num_gates=args["num_gates"],
+            k=args["top_k"],
+            max_num_neighbors=args["max_num_neighbors"],
+            embedding_size=args["embedding_dimension"],
+            num_rbf=args["num_rbf"],
+            expert_out_features=args["expert_out_features"],
+            # **shared_args,
         )
     elif args["model"] == "tensornet":
         from torchmdnet.models.tensornet import TensorNet

@@ -112,6 +112,10 @@ def get_argparse():
     parser.add_argument('--using-triplet-module', type=bool, default=True, help='Additional prior arguments. Needs to be a dictionary.')
     parser.add_argument('--mlp-layer', type=int, default=3, help='Additional prior arguments. Needs to be a dictionary.')
     parser.add_argument("--model-arg", default=None, help="Additional model arguments. Needs to be a dictionary.")
+    parser.add_argument('--num-gates', type=int, default=10, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--top-k', type=int, default=2, help='Additional prior arguments. Needs to be a dictionary.')
+    parser.add_argument('--expert-out-features', type=int, default=128, help='Additional prior arguments. Needs to be a dictionary.')
+
     # architectural args
     parser.add_argument('--charge', type=bool, default=False, help='Model needs a total charge. Set this to True if your dataset contains charges and you want them passed down to the model.')
     parser.add_argument('--spin', type=bool, default=False, help='Model needs a spin state. Set this to True if your dataset contains spin states and you want them passed down to the model.')

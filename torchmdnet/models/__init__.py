@@ -8,7 +8,7 @@ __all_models__ = [
 	"equivariant-transformer",
 	"tensornet",
 	"mlp_deepset",
-	"torchmd_deepset",
+	"deepset",
 	"equivariant-transformer-x",
 	"cmret"
 ]
