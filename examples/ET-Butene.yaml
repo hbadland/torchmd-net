@@ -12,7 +12,7 @@ dataset_arg:
  start: 100
  end: 6600
 dataset_root: ~/data
-derivative: true
+derivative: false
 distance_influence: both
 early_stopping_patience: 300
 ema_alpha_neg_dy: 1.0
@@ -25,7 +25,7 @@ force_files: null
 neg_dy_weight: 0.8
 #inference_batch_size: 64
 load_model: null
-log_dir: logs/ET-MD_Butene
+log_dir: logs/ET-MD_Butene/noisy
 lr: 0.001
 lr_factor: 0.8
 lr_min: 1.0e-07

@@ -2,13 +2,14 @@ activation: silu
 aggr: add
 atom_filter: -1
 attn_activation: silu
-batch_size: 1
+batch_size: 20
 coord_files: null
 cutoff_lower: 0.0
-cutoff_upper: 1.0
+cutoff_upper: 10.0
 dataset: MD17
 dataset_arg:
-#  molecules: aspirin,benzene,malonaldehyde,naphtalene,toluene,salicylic_acid,uracil,paracetamol
+#  molecules: aspirin,benzene,malonaldehyde,naphtalene,toluene,salicylic_acid,uracil,paracetamol,ethanol
+#  molecules: ethanol,malonaldehyde
   molecules: ethanol
 dataset_root: ~/data
 derivative: true
@@ -17,14 +18,14 @@ early_stopping_patience: 300
 ema_alpha_neg_dy: 1.0
 ema_alpha_y: 0.05
 embed_files: null
-embedding_dimension: 256
-expert_out_features: 256
+embedding_dimension: 128
+expert_out_features: 128
 energy_files: null
 y_weight: 0.2
 force_files: null
 neg_dy_weight: 0.8
 load_model: null
-log_dir: logs/
+log_dir: logs/deepset_ethanol
 lr: 0.001
 lr_factor: 0.2
 lr_min: 1.0e-07
@@ -36,7 +37,7 @@ model: deepset
 base_cutoff: 0.0
 outer_cutoff: 5.0
 num_gates: 10
-top_k: 2
+top_k: 5
 triplets_cutoff: 15.0
 loop: true
 long_edge_index: true
@@ -67,7 +68,7 @@ box_vecs: null
 charge: false
 spin: false
 vector_cutoff: true
-wandb_use: false
-wandb_project: MD17-Mix_No_Ethanol
+wandb_use: true
+wandb_project: EquivariantDeepSet
 tensorboard_use: true
-wandb_name: MLP_Mix_No_Ethanol_BS_100
+wandb_name: ethanol-bs20

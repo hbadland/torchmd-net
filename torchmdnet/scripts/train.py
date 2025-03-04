@@ -4,6 +4,7 @@
 
 import sys
 import os
+import time
 import yaml
 import random
 import argparse
@@ -33,6 +34,7 @@ from lightning_utilities.core.rank_zero import rank_zero_warn
 from torch.utils.data import ConcatDataset, Subset, SubsetRandomSampler, random_split
 from torch_geometric.data import DataLoader, InMemoryDataset
 from pytorch_lightning import LightningDataModule
+from rich.pretty import pprint
 
 def get_argparse():
     # fmt: off
@@ -169,6 +171,10 @@ def get_args():
     parser = get_argparse()
     args = parser.parse_args()
 
+    # Add timestamp to log_dir
+    timestamp = time.strftime('%Y%m%d-%H%M%S')
+    args.log_dir = os.path.join(args.log_dir.rstrip('/'), timestamp)
+
     if args.redirect:
         sys.stdout = open(os.path.join(args.log_dir, "log"), "w")
         sys.stderr = sys.stdout
@@ -217,11 +223,10 @@ def main():
         if not isinstance(args.prior_model, list):
             args.prior_model = [args.prior_model]
         args.prior_model.append({"Atomref": {"enable": False}})
-
     pl.seed_everything(args.seed, workers=True)
 
     # initialize data module
-    if args.dataset_arg.get("molecules") and len(args.dataset_arg.get("molecules").split(",")) > 1:
+    if args.dataset_arg.get("molecules") and len(args.dataset_arg.get("molecules").split("*")) > 1:
         subset_size: int = args.train_size + args.val_size + args.test_size
         molecules = args.dataset_arg["molecules"].split(",")
         datasets_list: list = []
@@ -242,6 +247,35 @@ def main():
         args.val_size = args.val_size * mol_num
         args.test_size = args.test_size * mol_num
 
+
+        data = DataModule(
+            args,
+            data_conc,
+        )
+
+        data.prepare_data()
+        data.setup("fit")
+
+    elif args.dataset == "MDCustom" and len(args.dataset_arg.get("root").split(",")) > 1:
+        subset_size: int = args.train_size + args.val_size + args.test_size
+        roots = args.dataset_arg["root"].split(",")
+        datasets_list: list = []
+        std: list = []
+        mean: list = []
+        for root in roots:
+            args.dataset_arg["root"] = root
+            data_module = DataModule(args)
+            data_module.prepare_data()
+            data_module.setup("fit")  # Prepare data for the 'fit' stage
+            datasets_list.append(data_module.dataset[torch.randperm(len(data_module.dataset))[:subset_size]])
+            std.append(data_module.std)
+            mean.append(data_module.mean)
+
+        data_conc = ConcatDataset(datasets_list)
+        mol_num = len(roots)
+        args.train_size = args.train_size * mol_num
+        args.val_size = args.val_size * mol_num
+        args.test_size = args.test_size * mol_num
 
         data = DataModule(
             args,
@@ -309,7 +343,11 @@ def main():
         rank_zero_warn(
             f"WARNING: Test set will be evaluated every {args.test_interval} epochs. This will slow down training."
         )
-        
+
+    # Print arguments to store it in logs
+    pprint(args)
+
+
     trainer = pl.Trainer(
         strategy="auto",
         max_epochs=args.num_epochs,

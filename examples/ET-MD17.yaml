@@ -8,8 +8,8 @@ cutoff_lower: 0.0
 cutoff_upper: 5.0
 dataset: MD17
 dataset_arg:
-  molecules:  aspirin,benzene,malonaldehyde,naphtalene,toluene,salicylic_acid,uracil,paracetamol
-#  molecules:  ethanol
+#  molecules:  aspirin,benzene,malonaldehyde,naphtalene,toluene,salicylic_acid,uracil,paracetamol
+  molecules:  ethanol
 dataset_root: ~/data
 derivative: true
 distance_influence: both
@@ -60,8 +60,8 @@ box_vecs: null
 charge: false
 spin: false
 vector_cutoff: true
-wandb_use: false
-wandb_project: MD17-Mix_No_Ethanol
+wandb_use: true
+wandb_project: EquivariantDeepSet
 tensorboard_use: true
-wandb_name: ET-Transformer-Mix_No_Ethanol
+wandb_name: ET-Transformer-Ethanol
 #best_model_path: /home/amir/Projects/torchmd-net/logs/epoch=2999-val_loss=0.5655-test_loss=0.4790.ckpt
