@@ -6,9 +6,9 @@ batch_size: 20
 coord_files: null
 cutoff_lower: 0.0
 cutoff_upper: 10.0
-dataset: MDCustom
+dataset: MDCustomInMemory
 dataset_arg:
- root:  /home/amir/Projects/Butene/,/home/amir/Projects/Pentene/
+ root:  /home/amir/Projects/Butene/
  start: 100
  end: 6600
 dataset_root: ~/data
@@ -25,7 +25,7 @@ y_weight: 0.2
 force_files: null
 neg_dy_weight: 0.8
 load_model: null
-log_dir: logs/deepset_alkins
+log_dir: logs/deepset_alkins/butene
 lr: 0.001
 lr_factor: 0.2
 lr_min: 1.0e-07
@@ -68,7 +68,7 @@ box_vecs: null
 charge: false
 spin: false
 vector_cutoff: true
-wandb_use: true
+wandb_use: false
 wandb_project: EquivariantDeepSet
-tensorboard_use: true
+tensorboard_use: false
 wandb_name: Butene+Pentene

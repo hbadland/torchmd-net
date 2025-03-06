@@ -71,4 +71,4 @@ vector_cutoff: true
 wandb_use: true
 wandb_project: EquivariantDeepSet
 tensorboard_use: true
-wandb_name: ethanol-bs20
+wandb_name: ethanol-guassian-based-experts-vectors

@@ -525,6 +525,7 @@ class TorchMD_Net(nn.Module):
         )
         # apply the output network
         x = self.output_model.pre_reduce(x, v, z, pos, batch)
+        print(f"The contribution for energy: {x}")
 
         # scale by data standard deviation
         if self.std is not None:
@@ -537,7 +538,6 @@ class TorchMD_Net(nn.Module):
 
         # aggregate atoms
         x = self.output_model.reduce(x, batch)
-
         # shift by data mean
         if self.mean is not None:
             x = x + self.mean
@@ -549,7 +549,7 @@ class TorchMD_Net(nn.Module):
         if self.prior_model is not None:
             for prior in self.prior_model:
                 y = prior.post_reduce(y, z, pos, batch, box, extra_args)
-        # self.derivative = False # Turn it false here when inference with ipynb inference is needed
+        self.derivative = False # Turn it false here when inference with ipynb inference is needed
         # compute gradients with respect t-o coordinates
         if self.derivative:
             grad_outputs: List[Optional[torch.Tensor]] = [torch.ones_like(y)]

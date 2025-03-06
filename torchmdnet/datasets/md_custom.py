@@ -3,6 +3,7 @@ import re
 import torch
 from torch_geometric.data import Data, Dataset
 
+
 class MDCustom(Dataset):
     def __init__(self, root, start=None, end=None, transform=None, pre_transform=None):
         """
@@ -139,7 +140,25 @@ class MDCustom(Dataset):
         return len(self.processed_file_names)
 
     def get(self, idx):
-        return torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False) #, weights_only=False
+        return torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'),
+                          weights_only=False)  # , weights_only=False
+
+
+class MDCustomInMemory(MDCustom):
+    def __init__(self, root, start=None, end=None, transform=None, pre_transform=None):
+        super().__init__(root, start, end, transform, pre_transform)
+        # Load all data into memory once
+        self.data_list = []
+        for i in range(self.len()):
+            # print(os.path.join(self.processed_dir, f'data_{i}.pt'))
+            self.data_list.append(torch.load(os.path.join(self.processed_dir, f'data_{i}.pt')))
+
+    def get(self, idx):
+        data = self.data_list[idx]
+        if self.transform:
+            data = self.transform(data)
+        return data
+
 
 if __name__ == "__main__":
     # Test the dataset class with and without sampling

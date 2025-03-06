@@ -219,6 +219,14 @@ class DataModule(LightningDataModule):
                     self.hparams["dataset_arg"]["start"],
                     self.hparams["dataset_arg"]["end"],
                 )
+
+            elif self.hparams["dataset"] == "MDCustomInMemory":
+                self.dataset = datasets.MDCustomInMemory(
+                self.hparams["dataset_arg"]["root"],
+                self.hparams["dataset_arg"]["start"],
+                self.hparams["dataset_arg"]["end"],
+
+                )
             else:
                 dataset_arg = {}
                 if self.hparams["dataset_arg"] is not None:

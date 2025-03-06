@@ -19,13 +19,14 @@ from .custom import Custom
 from .water import WaterBox
 from .hdf import HDF5
 from .md17 import MD17
+
 from .md22 import MD22
 from .qm9 import QM9
 from .qm9q import QM9q
 from .spice import SPICE
 from .genentech import GenentechTorsions
 from .maceoff import MACEOFF
-from .md_custom import MDCustom
+from .md_custom import MDCustom, MDCustomInMemory
 
 __all__ = [
     "Ace",
@@ -53,4 +54,5 @@ __all__ = [
     "WaterBox",
     "MACEOFF",
     "MDCustom",
+    "MDCustomInMemory",
 ]

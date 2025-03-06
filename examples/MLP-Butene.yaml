@@ -6,7 +6,7 @@ batch_size: 20
 coord_files: null
 cutoff_lower: 0.0
 cutoff_upper: 1.0
-dataset: MDCustom
+dataset: MDCustomInMemory
 dataset_arg:
  root:  /home/amir/Projects/Butene_MD
  start: 1
