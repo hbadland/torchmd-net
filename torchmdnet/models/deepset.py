@@ -186,8 +186,8 @@ class DeepSet(nn.Module):
 		],	dim=1
 		)
 
-		# @todo Transform the distance projection, nuclear charges and atom embeddings
-		d_ij_t_projection = self.d_ij_transform(edge_features) # @todo: Fix size of this afterwards
+		# Transform the distance projection, nuclear charges and atom embeddings
+		d_ij_t_projection = self.d_ij_transform(edge_features) # Fix size of this afterwards
 		a_i_projection = self.a_i_transform(x[edge_index[0, :]]) # Prepares for calculations
 		a_j_projection = self.a_j_transform(x[edge_index[1, :]]) # Enables message passing
 
