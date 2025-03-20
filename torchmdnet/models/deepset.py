@@ -1,5 +1,6 @@
 from typing import Callable, Dict, Optional, Union, List
 import typing
+import wandb
 import rich
 from rich import pretty
 
@@ -9,6 +10,8 @@ import torch_geometric as tg
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, zeros_
 from torch.nn import init
+
+from torch.geometric.nn import GCNConv, SAGEConv
 
 from torchmdnet.models.utils import (
 	NeighborEmbedding,
@@ -69,19 +72,23 @@ class DeepSet(nn.Module):
 		self.distance_expansion = rbf_class_mapping[rbf_type](
 			base_cutoff, outer_cutoff, num_rbf, trainable_rbf
 		)
-		self.distance_proj = nn.Linear(num_rbf, embedding_size, dtype=dtype)
-		self.cutoff = CosineCutoff(base_cutoff, outer_cutoff)
-		self.embedding = nn.Embedding(100, embedding_size, dtype=dtype)
+		# Creates connected linear layer
+		self.distance_proj = nn.Linear(num_rbf, embedding_size, dtype=dtype) #transforms size num_rbf into embedding_size
+		self.cutoff = CosineCutoff(base_cutoff, outer_cutoff) #Restrict interactions beyond a certain distance
+		self.embedding = nn.Embedding(100, embedding_size, dtype=dtype) #Embedding layer maps ints
 
 		self.neighbor_embedding = NeighborEmbedding(embedding_size, 20, base_cutoff, outer_cutoff, 100, dtype)
+		#Part of a message passing NN/GNN
+		# ! Need to update size for this as passing in new size later on
+		expanded_feature_dim = embedding_size + 6
+		self.d_ij_transform = nn.Linear(expanded_feature_dim, embedding_size, dtype=dtype) #Refine how interatomic distances contribute
+		self.a_i_transform = nn.Linear(embedding_size, embedding_size, dtype=dtype) #Project atom features into a common space before interactions
+		self.a_j_transform = nn.Linear(embedding_size, embedding_size, dtype=dtype) #When node i receives messages from j (neighbors) those messages are transformed properly.
 
-		self.d_ij_transform = nn.Linear(embedding_size, embedding_size, dtype=dtype)
-		self.a_i_transform = nn.Linear(embedding_size, embedding_size, dtype=dtype)
-		self.a_j_transform = nn.Linear(embedding_size, embedding_size, dtype=dtype)
-
-		self.gamma_transform = nn.Linear(3 * embedding_size, embedding_size, dtype=dtype)
+		#Gated message passing system
+		self.gamma_transform = nn.Linear(3 * embedding_size, embedding_size, dtype=dtype) # 3 suggests processing diff inputs i.e. central, neighbour and edge
 		# Shape: (num_features, num_gates)
-		self.W_g = nn.Parameter(torch.randn(embedding_size, num_gates) * 0.01)  # Small random initialization
+		self.W_g = nn.Parameter(torch.randn(embedding_size, num_gates) * 0.01)  # Small random initialization // gating mechanism controls info flow and selects important messages
 
 		# Noise weight matrix W_noise
 		# Shape: (num_features, num_gates)
@@ -89,7 +96,6 @@ class DeepSet(nn.Module):
 
 		# Distance Learnable Parameters (Steven's method)
 		self.W_distance = nn.Parameter(torch.randn(embedding_size, num_gates) * 0.01)
-		# ! This need to be discussed to Steven about number of parameters and how to make it dynamic
 
 		self.t_parameters = nn.Parameter(torch.randn(num_gates) * 0.01)
 
@@ -97,25 +103,25 @@ class DeepSet(nn.Module):
 		# self.k = k
 		self.num_gates = num_gates
 
-		self.experts = nn.ModuleList([
+		self.experts = nn.ModuleList([ #List of independent layers with each acting as an expert
 			nn.Linear(embedding_size, expert_out_features, dtype=dtype)
 			for _ in range(num_gates)  # One expert per gate (to handle all possible gates)
 		])
-
+		#Gating mechanism chooses which experts contribute to output.
 
 	def reset_parameters(self):
 		...
-
+	#Numpy style docstring
 	def forward(self,
-	            z: torch.Tensor,
+	            z: torch.Tensor, # Type hints, here for readability and clarity
 	            pos: torch.Tensor,
 	            batch: torch.Tensor,
 	            box: Optional[torch.Tensor] = None,
 	            q: Optional[torch.Tensor] = None,
 	            s: Optional[torch.Tensor] = None) -> typing.Tuple[
-		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: #Model returns 5 tensors?
 		"""
-
+		#Google style doc string
 		Args:
 			z:                                  # Size is like (n_atoms, 1)
 			pos:                                # Size is like (n_atoms, 3)
@@ -127,46 +133,66 @@ class DeepSet(nn.Module):
 		Returns:
 
 		"""
+		#Beginning the forward pass
+		x = self.embedding(z) #Maps atomic numbers to learnable vectors, continuous representation
 
-		x = self.embedding(z)
+		edge_index, edge_weight, edge_vec = self.distance(pos, batch, box) #Finds pairs of atoms close and returns which atoms are connected, their distance and direction
+		#Edge weight distance, take as x
 
-		edge_index, edge_weight, edge_vec = self.distance(pos, batch, box)
-
-		edge_weight: torch.Tensor
-
-		# print(x_0)
-		edge_attr = self.distance_expansion(edge_weight)
+		edge_attr = self.distance_expansion(edge_weight) #Converts raw distances between atoms into a better format, NN struggle with raw values
 
 		# edge_index = edge_index[:, edge_weight != 0]
 		# edge_weight = edge_weight[edge_weight != 0] # * Prevent self loops (No distance between same an atom so it should be 0)
 		# edge_vec = edge_vec[edge_vec != 0]
-		mask = edge_index[0] != edge_index[1]
-		if not mask.all():
+		mask = edge_index[0] != edge_index[1] #Mask used to handle anomalous data points , filters out self loops (source and target)
+		if not mask.all(): #Checks for any false values in the mask, if so then following code is executed
 			edge_index = edge_index[:, mask]
 			edge_weight = edge_weight[mask]
 			edge_attr = edge_attr[mask]
 			edge_vec = edge_vec[mask]  # Mask edge_vec as well
 
 		if self.skip_duplicates: # this remove repeated edges in calculation (it means upper triangle matrix)
-			edge_index = edge_index[:, ::2]
-			edge_weight = edge_weight[::2]
+			edge_index = edge_index[:, ::2] #Slicing, selects every second edge so skips over dupes
+			edge_weight = edge_weight[::2] #Slice with 2 to skip duplicate edges and keep only one direction
 			edge_attr = edge_attr[::2]
 			edge_vec = edge_vec[::2]
+
+		# ! Begin project here, add square, cube, tet, sqr root etc
+		edge_weight_sq = edge_weight ** 2
+		edge_weight_cube = edge_weight ** 3
+		edge_weight_tet = edge_weight ** 4
+		edge_weight_sqrt = torch.sqrt(edge_weight)
+		edge_weight_log = torch.log(edge_weight)
+
+		edge_weight: torch.Tensor  # Type hint, edge_weight is expected to be a tensor
 
 		# Normalize edge_vec for masked edges (similar to TorchMD_ET)
 		edge_vec = edge_vec / torch.norm(edge_vec, dim=1, keepdim=True)
 
 		# Compute the cutoff and distance projection
-		C = self.cutoff(edge_weight)
-		d_ij_projection = self.distance_proj(edge_attr) * C.view(-1, 1)
+		C = self.cutoff(edge_weight) # Applies cutoff function to edge weight tensor, limits interactions to certain threshold.
+		d_ij_projection = self.distance_proj(edge_attr) * C.view(-1, 1) # Applies cutoff values to projections. If edge is zero then it is reflected here.
 
-		# Transform the distance projection, nuclear charges and atom embeddings
-		d_ij_t_projection = self.d_ij_transform(d_ij_projection)
-		a_i_projection = self.a_i_transform(x[edge_index[0, :]])
-		a_j_projection = self.a_j_transform(x[edge_index[1, :]])
+		# !Concat new weights to the projection, since dim = 1 need to ensure concat along a column ??
+		edge_features = torch.cat(
+[
+			d_ij_projection,
+			 edge_weight_sq.view(-1,1),
+			 edge_weight_cube.view(-1,1),
+			 edge_weight_tet.view(-1,1),
+			 edge_weight_sqrt.view(-1,1),
+			 edge_weight_log.view(-1,1),
+			 edge_weight.view(-1,1)
+		],	dim=1
+		)
+
+		# @todo Transform the distance projection, nuclear charges and atom embeddings
+		d_ij_t_projection = self.d_ij_transform(edge_features) # @todo: Fix size of this afterwards
+		a_i_projection = self.a_i_transform(x[edge_index[0, :]]) # Prepares for calculations
+		a_j_projection = self.a_j_transform(x[edge_index[1, :]]) # Enables message passing
 
 		gamma_projection = self.gamma_transform(torch.concat([a_i_projection.squeeze(), a_j_projection.squeeze(), d_ij_t_projection], dim=1))
-
+		# Combine the source and target atom features then apply transformation to better learn them
 
 		# Computing Z:
 		d_ij_expanded = torch.repeat_interleave(edge_weight, self.num_gates, dim=0)
@@ -312,14 +338,14 @@ if __name__ == "__main__":
 
 
 	def set_seed(seed: int):
-		torch.manual_seed(seed)
+		torch.manual_seed(seed) # Ensures random number generator is deterministic on the cpu
 		np.random.seed(seed)
 		random.seed(seed)
-		if torch.cuda.is_available():
+		if torch.cuda.is_available(): # Makes sure CUDA is set with the same seed, GPU results now reproducable
 			torch.cuda.manual_seed(seed)
 			torch.cuda.manual_seed_all(seed)
-		torch.backends.cudnn.deterministic = True
-		torch.backends.cudnn.benchmark = False
+		torch.backends.cudnn.deterministic = True # GPU ops deterministic
+		torch.backends.cudnn.benchmark = False # Avoid non deterministic behaviour when input size not fixed
 
 
 	# Set the seed
