@@ -43,7 +43,7 @@ loop: true
 long_edge_index: true
 check_errors: false
 ngpus: -1
-num_epochs: 300
+num_epochs: 150
 num_heads: 8
 num_layers: 6
 num_nodes: 1
@@ -71,4 +71,7 @@ vector_cutoff: true
 wandb_use: true
 wandb_project: HarryDeepset
 tensorboard_use: true
-wandb_name: Butene-Testrun1
+wandb_name: SAGE-Pairwise-Xedge-AggrMax
+# sageconv_hidden_dim:
+# sageconv_layers:
+# distance_operator_number:
