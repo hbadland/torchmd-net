@@ -151,7 +151,7 @@ class MDCustomInMemory(MDCustom):
         self.data_list = []
         for i in range(self.len()):
             # print(os.path.join(self.processed_dir, f'data_{i}.pt'))
-            self.data_list.append(torch.load(os.path.join(self.processed_dir, f'data_{i}.pt')))
+            self.data_list.append(torch.load(os.path.join(self.processed_dir, f'data_{i}.pt'), weights_only=False))
 
     def get(self, idx):
         data = self.data_list[idx]

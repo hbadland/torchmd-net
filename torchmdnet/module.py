@@ -159,6 +159,8 @@ class LNNP(LightningModule):
         )
 
     def validation_step(self, batch, batch_idx, *args):
+        print("pos shape:", batch.pos.shape)
+        print("forces shape:", batch.neg_dy.shape)
         # If args is not empty the first (and only) element is the dataloader_idx
         # We want to test every number of epochs just for reporting, but this is not supported by Lightning.
         # Instead, we trick it by providing two validation dataloaders and interpreting the second one as test.
@@ -212,10 +214,17 @@ class LNNP(LightningModule):
             0.0, device=self.device
         )
         if self.hparams.derivative and "neg_dy" in batch:
-            loss_neg_y = loss_fn(neg_y, batch.neg_dy)
-            loss_neg_y = self._update_loss_with_ema(
-                stage, "neg_dy", loss_name, loss_neg_y
-            )
+            # Add a validation to ensure compatibility
+            if neg_y.shape == batch.neg_dy.shape:
+                loss_neg_y = loss_fn(neg_y, batch.neg_dy)
+                loss_neg_y = self._update_loss_with_ema(
+                    stage, "neg_dy", loss_name, loss_neg_y
+                )
+            else:
+                raise ValueError(
+                    f"Incompatible shapes between neg_y {neg_y.shape} and batch.neg_dy {batch.neg_dy.shape}"
+                )
+
         if "y" in batch:
             loss_y = loss_fn(y, batch.y)
             loss_y = self._update_loss_with_ema(stage, "y", loss_name, loss_y)

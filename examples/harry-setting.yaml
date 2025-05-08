@@ -68,10 +68,10 @@ box_vecs: null
 charge: false
 spin: false
 vector_cutoff: true
-wandb_use: true
+wandb_use: false
 wandb_project: HarryDeepset
 tensorboard_use: true
-wandb_name: SAGE-Pairwise-Xedge-AggrMax
+wandb_name: Pentene Cub Sqrt
 # sageconv_hidden_dim:
 # sageconv_layers:
 # distance_operator_number:

@@ -1,7 +1,8 @@
-# Copyright Universitat Pompeu Fabra 2020-2023  https://www.compscience.org
+## Copyright Universitat Pompeu Fabra 2020-2023  https://www.compscience.org
 # Distributed under the MIT License.
 # (See accompanying file README.md file or copy at http://opensource.org/licenses/MIT)
 from glob import glob
+import pandas as pd
 import os
 import re
 import tempfile
@@ -431,10 +432,18 @@ class TorchMD_Net(nn.Module):
         std=None,
         derivative=False,
         dtype=torch.float32,
-    ):
+        predicted_energies= None,  # <== PROBLEM
+        atom_types= None,  # <== PROBLEM
+        time_interval=1.0,
+        initial_time=0.0
+        ):
         super(TorchMD_Net, self).__init__()
         self.representation_model = representation_model.to(dtype=dtype)
         self.output_model = output_model.to(dtype=dtype)
+        self.predicted_energies = predicted_energies
+        self.atom_types = atom_types
+        self.time_interval = time_interval
+        self.initial_time = initial_time
 
         if not output_model.allow_prior_model and prior_model is not None:
             prior_model = None
@@ -526,6 +535,64 @@ class TorchMD_Net(nn.Module):
         # apply the output network
         x = self.output_model.pre_reduce(x, v, z, pos, batch)
         print(f"The contribution for energy: {x}")
+        """
+        insert code to make a table for energies of atoms in butene, then test on pentene afterwards
+
+
+        [need to be sure if this is ok]
+
+
+        """
+
+        # n_steps = self.predicted_energies.shape[0]
+        if self.derivative:
+            pos.requires_grad_(True)
+
+        # run the potentially wrapped representation model
+        x, v, z, pos, batch = self.representation_model(
+            z, pos, batch, box=box, q=q, s=s,
+        )
+
+        if x.dim() == 1:
+            predicted_energies = x.unsqueeze(0)  # (1, n_atoms)
+        else:
+            predicted_energies = x
+
+        output_dir = "per_atom_energies"
+        os.makedirs(output_dir, exist_ok=True)
+
+        atom_types = ["C", "C", "C", "C",
+                      "H", "H", "H", "H", "H", "H", "H", "H"]
+
+        initial_time = 0.0
+        time_interval = 1.0
+
+        n_steps = predicted_energies.shape[0]
+        csv_data = []
+
+        for i in range(n_steps):
+            energies = predicted_energies[i]
+            total_energy = energies.sum()
+            time = initial_time + i * time_interval
+
+            print(f"i = {i:8d}, time = {time:12.3f}, E = {total_energy:20.10f}")
+
+            for idx, (atom_type, atom_energy) in enumerate(zip(atom_types, energies)):
+                csv_data.append({
+                    "step": i,
+                    "time_fs": time,
+                    "atom_idx": idx,
+                    "atom_type": atom_type,
+                    "atom_energy": atom_energy.item(),
+                    "total_energy": total_energy.item()
+                })
+                # print(f"  {atom_type:2s}   {atom_energy:20.10f}")
+
+        df = pd.DataFrame(csv_data)
+        csv_filename = os.path.join(output_dir, "butene_per_atom_energies.csv")
+        df.to_csv(csv_filename, index=False)
+
+        print(f"Saved per-atom energies to {csv_filename}")
 
         # scale by data standard deviation
         if self.std is not None:
@@ -549,7 +616,7 @@ class TorchMD_Net(nn.Module):
         if self.prior_model is not None:
             for prior in self.prior_model:
                 y = prior.post_reduce(y, z, pos, batch, box, extra_args)
-        self.derivative = False # Turn it false here when inference with ipynb inference is needed
+        self.derivative = False  # Turn it false here when inference with ipynb inference is needed
         # compute gradients with respect t-o coordinates
         if self.derivative:
             grad_outputs: List[Optional[torch.Tensor]] = [torch.ones_like(y)]
@@ -566,51 +633,50 @@ class TorchMD_Net(nn.Module):
         # This is required to overcome a TorchScript limitation, xref https://github.com/openmm/openmm-torch/issues/135
         return y, torch.empty(0)
 
+    class Ensemble(torch.nn.ModuleList):
+        """Average predictions over an ensemble of TorchMD-Net models.
 
-class Ensemble(torch.nn.ModuleList):
-    """Average predictions over an ensemble of TorchMD-Net models.
+           This module behaves like a single TorchMD-Net model, but its forward method returns the average and standard deviation of the predictions over all models it was initialized with.
 
-       This module behaves like a single TorchMD-Net model, but its forward method returns the average and standard deviation of the predictions over all models it was initialized with.
-
-    Args:
-        modules (List[nn.Module]): List of :py:mod:`TorchMD_Net` models to average predictions over.
-        return_std (bool, optional): Whether to return the standard deviation of the predictions. Defaults to False. If set to True, the model returns 4 arguments (mean_y, mean_neg_dy, std_y, std_neg_dy) instead of 2 (mean_y, mean_neg_dy).
-    """
-
-    def __init__(self, modules: List[nn.Module], return_std: bool = False):
-        for module in modules:
-            assert isinstance(module, TorchMD_Net)
-        super().__init__(modules)
-        self.return_std = return_std
-
-    def forward(
-        self,
-        *args,
-        **kwargs,
-    ):
-        """Average predictions over all models in the ensemble.
-        The arguments to this function are simply relayed to the forward method of each :py:mod:`TorchMD_Net` model in the ensemble.
         Args:
-            *args: Positional arguments to forward to the models.
-            **kwargs: Keyword arguments to forward to the models.
-        Returns:
-            Tuple[Tensor, Optional[Tensor]] or Tuple[Tensor, Optional[Tensor], Tensor, Optional[Tensor]]: The average and standard deviation of the predictions over all models in the ensemble. If return_std is False, the output is a tuple (mean_y, mean_neg_dy). If return_std is True, the output is a tuple (mean_y, mean_neg_dy, std_y, std_neg_dy).
-
+            modules (List[nn.Module]): List of :py:mod:`TorchMD_Net` models to average predictions over.
+            return_std (bool, optional): Whether to return the standard deviation of the predictions. Defaults to False. If set to True, the model returns 4 arguments (mean_y, mean_neg_dy, std_y, std_neg_dy) instead of 2 (mean_y, mean_neg_dy).
         """
-        y = []
-        neg_dy = []
-        for model in self:
-            res = model(*args, **kwargs)
-            y.append(res[0])
-            neg_dy.append(res[1])
-        y = torch.stack(y)
-        neg_dy = torch.stack(neg_dy)
-        y_mean = torch.mean(y, axis=0)
-        neg_dy_mean = torch.mean(neg_dy, axis=0)
-        y_std = torch.std(y, axis=0)
-        neg_dy_std = torch.std(neg_dy, axis=0)
 
-        if self.return_std:
-            return y_mean, neg_dy_mean, y_std, neg_dy_std
-        else:
-            return y_mean, neg_dy_mean
+        def __init__(self, modules: List[nn.Module], return_std: bool = False):
+            for module in modules:
+                assert isinstance(module, TorchMD_Net)
+            super().__init__(modules)
+            self.return_std = return_std
+
+        def forward(
+                self,
+                *args,
+                **kwargs,
+        ):
+            """Average predictions over all models in the ensemble.
+            The arguments to this function are simply relayed to the forward method of each :py:mod:`TorchMD_Net` model in the ensemble.
+            Args:
+                *args: Positional arguments to forward to the models.
+                **kwargs: Keyword arguments to forward to the models.
+            Returns:
+                Tuple[Tensor, Optional[Tensor]] or Tuple[Tensor, Optional[Tensor], Tensor, Optional[Tensor]]: The average and standard deviation of the predictions over all models in the ensemble. If return_std is False, the output is a tuple (mean_y, mean_neg_dy). If return_std is True, the output is a tuple (mean_y, mean_neg_dy, std_y, std_neg_dy).
+
+            """
+            y = []
+            neg_dy = []
+            for model in self:
+                res = model(*args, **kwargs)
+                y.append(res[0])
+                neg_dy.append(res[1])
+            y = torch.stack(y)
+            neg_dy = torch.stack(neg_dy)
+            y_mean = torch.mean(y, axis=0)
+            neg_dy_mean = torch.mean(neg_dy, axis=0)
+            y_std = torch.std(y, axis=0)
+            neg_dy_std = torch.std(neg_dy, axis=0)
+
+            if self.return_std:
+                return y_mean, neg_dy_mean, y_std, neg_dy_std
+            else:
+                return y_mean, neg_dy_mean
