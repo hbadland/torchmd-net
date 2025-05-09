@@ -1,0 +1,899 @@
+Index: experiments/butene.ipynb
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/experiments/butene.ipynb b/experiments/butene.ipynb
+--- a/experiments/butene.ipynb	
++++ b/experiments/butene.ipynb	(date 1746656648232)
+@@ -1,0 +1,890 @@
++#%%
++import sys
++import os
++import yaml
++import random
++import argparse
++import logging
++import torch
++import lightning.pytorch as pl
++from lightning.pytorch.loggers import WandbLogger, CSVLogger, TensorBoardLogger
++from lightning.pytorch.callbacks import (
++    ModelCheckpoint,
++    EarlyStopping,
++)
++from torchmdnet.module import LNNP
++from torchmdnet import datasets, priors, models
++from torchmdnet.data import DataModule
++from torchmdnet.loss import loss_class_mapping
++from torchmdnet.models import output_modules
++from torchmdnet.models.model import create_prior_models
++from torchmdnet.models.utils import rbf_class_mapping, act_class_mapping, dtype_mapping
++from torchmdnet.utils import LoadFromFile, LoadFromCheckpoint, save_argparse, number
++from lightning_utilities.core.rank_zero import rank_zero_warn
++from torch.utils.data import ConcatDataset, Subset, SubsetRandomSampler, random_split
++
++#%%
++# aLIGN with deepset config for these
++args = {
++    "activation": "silu",
++    "aggr": "add",
++    "atom_filter": -1,
++    "attn_activation": "silu",
++    "batch_size": 20,
++    "coord_files": None,
++    "cutoff_lower": 0.0,
++    "cutoff_upper": 10.0,
++    "dataset": "MDCustomInMemory",
++    "dataset_arg": {
++        "root": "/Users/harrybadland/PycharmProjects/harry-torchmd/torchmd-net/examples/Butene-New",
++        "start": 100,
++        "end": 6600
++    },
++    "dataset_root": "~/data",
++    "derivative": True,
++    "distance_influence": "both",
++    "early_stopping_patience": 300,
++    "ema_alpha_neg_dy": 1.0,
++    "ema_alpha_y": 0.05,
++    "embed_files": None,
++    "embedding_dimension": 128,
++    "expert_out_features": 128,
++    "energy_files": None,
++    "y_weight": 0.2,
++    "force_files": None,
++    "neg_dy_weight": 0.8,
++    "load_model": None,
++    "log_dir": "logs/deepset_alkins/butene",
++    "lr": 0.001,
++    "lr_factor": 0.2,
++    "lr_min": 1.0e-07,
++    "lr_patience": 30,
++    "lr_warmup_steps": 1000,
++    "max_num_neighbors": 50000,
++    "max_z": 100,
++    "model": "deepset",
++    "base_cutoff": 0.0,
++    "outer_cutoff": 5.0,
++    "num_gates": 10,
++    "top_k": 5,
++    "triplets_cutoff": 15.0,
++    "loop": True,
++    "long_edge_index": True,
++    "check_errors": False,
++    "ngpus": -1,
++    "num_epochs": 150,
++    "num_heads": 8,
++    "num_layers": 6,
++    "num_nodes": 1,
++    "num_rbf": 32,
++    "num_workers": 8,
++    "output_model": "Scalar",
++    "precision": 32,
++    "prior_model": None,
++    "rbf_type": "expnorm",
++    "redirect": False,
++    "reduce_op": "add",
++    "save_interval": 10,
++    "splits": None,
++    "standardize": True,
++    "test_interval": 10,
++    "test_size": 100,
++    "train_size": 1000,
++    "trainable_rbf": False,
++    "val_size": 100,
++    "weight_decay": 0.0,
++    "box_vecs": None,
++    "charge": False,
++    "spin": False,
++    "vector_cutoff": True,
++    "wandb_use": True,
++    "wandb_project": "HarryDeepset",
++    "tensorboard_use": True,
++    "wandb_name": "RBF Sq Cub",
++    "pairwise_thread": False,
++    "triples_thread": True,
++    "resize_to_fit": False,
++    "seed": 42,
++    "inference_batch_size": 20,
++    "remove_ref_energy": False
++}
++
++#args = argparse.Namespace(**args)
++
++# Now you can access the arguments as attributes of the args object
++#print(args.activation)
++# args["prior_args"] = [p.get_init_args() for p in prior_models]
++
++# model = LNNP(args, prior_model=prior_models, mean=data.mean, std=data.std)
++#%%
++!pwd
++#%%
++
++#%%
++data = DataModule(args)
++data.prepare_data()
++data.setup("fit")
++#%%
++loader = data.test_dataloader()
++inner_dataset = loader.dataset
++
++torch.set_printoptions(precision=7)
++
++# Handle subset wrapping
++if hasattr(inner_dataset, 'dataset'):
++    base_dataset = inner_dataset.dataset
++else:
++    base_dataset = inner_dataset
++
++# Inspect sample
++step = 15
++sample = base_dataset[step]
++print("Energy:", sample['y'] if 'y' in sample else sample['energy'])
++print("Atomic numbers:", sample['z'])
++print("Positions:", sample['pos'])
++
++#%%
++if hasattr(base_dataset, 'file_paths'):
++    print("File path for step 5:", base_dataset.file_paths[5])
++elif hasattr(base_dataset, 'metadata'):
++    print("Metadata for step 5:", base_dataset.metadata[5])
++#%%
++if hasattr(base_dataset, 'samples'):
++    print("Sample info for step 5:", base_dataset.samples[5])
++
++#%%
++#args = argparse.Namespace(**args)
++print(type(args))  # This will help you identify what type args currently is.
++#%%
++prior_models = create_prior_models(args, data.dataset)
++args["prior_args"] = [p.get_init_args() for p in prior_models]
++# initialize lightning module
++model = LNNP(args, prior_model=prior_models, mean=data.mean, std=data.std)
++#%%
++# dont need
++# #trainer = pl.Trainer(
++    #strategy="auto",
++    #max_epochs=args.num_epochs,
++    #accelerator="cpu",
++    # devices="cpu",
++    num_nodes=args.num_nodes,
++    default_root_dir=args.log_dir,
++    # callbacks=[early_stopping, checkpoint_callback],
++    # logger=_logger,
++    precision=args.precision,
++    gradient_clip_val=args.gradient_clipping,
++    inference_mode=False,
++    # Test-during-training requires reloading the dataloaders every epoch
++    reload_dataloaders_every_n_epochs=1 if args.test_interval > 0 else 0,
++)
++#%%
++!ls -l ../logs/deepset_alkins/butene/20250414-234859/epoch=149-val_loss=0.0033-test_loss=0.0235.ckpt
++#%%
++# loading trained model , important part here - find checkpoint for best trained model
++model = LNNP.load_from_checkpoint("../logs/deepset_alkins/butene/20250414-234859/epoch=149-val_loss=0.0033-test_loss=0.0235.ckpt")
++model.eval()
++
++#%%
++val_dataloader = data.test_dataloader()
++
++for i, batch in enumerate(val_dataloader):
++    print(f"Batch {i}: type = {type(batch)}")
++    print(batch)
++    break  # Just show first batch
++#%%
++import torch
++
++print("box:", hasattr(batch, "box"), batch.box.shape if hasattr(batch, "box") else None)
++print("z:", batch.z.shape)
++print("pos:", batch.pos.shape)
++print("batch:", batch.batch.shape)
++
++outputs_list = []
++label_list = []
++
++for batch in val_dataloader:
++    batch = batch.to(model.device)
++
++    with torch.no_grad():
++        # Extract all necessary inputs
++        z = batch.z
++        pos = batch.pos
++        batch_idx = batch.batch
++        box = getattr(batch, "box", None)  # Safely get box if it exists
++        q = getattr(batch, "q", None)
++        s = getattr(batch, "s", None)
++
++        preds, *_ = model(z, pos, batch_idx, box=box, q=q, s=s)
++
++    outputs_list.extend(preds.cpu().numpy().tolist())
++    label_list.extend(batch.y.cpu().numpy().tolist())
++#%%
++len(data.test_dataloader())
++
++print("Sample output type:", type(outputs_list[0]))
++print("Sample label type:", type(label_list[0]))
++
++#%%
++import plotly.express as px
++
++# Create a DataFrame for easier plotting
++import pandas as pd
++
++# Flatten outputs_list (e.g., convert [[3.24]] to [3.24])
++flat_outputs = [float(o[0]) if isinstance(o, list) else float(o) for o in outputs_list]
++flat_labels = [float(l) for l in label_list]
++
++sub_outputs_list = outputs_list[:1000]
++sub_label_list = label_list[:1000]
++df = pd.DataFrame({
++    'Time(Frame)': range(len(flat_labels)),
++    'Outputs': flat_outputs,
++    'Labels': flat_labels,
++})
++
++# Create a linear plot
++fig = px.line(df, x='Time(Frame)', y=['Outputs', 'Labels'], labels={'value': 'Energy', 'variable': 'Legend'}, title='Deepset Model Trained on Butene-MD and Tested on Butene')
++
++fig.update_layout(
++    plot_bgcolor='lightgrey',        # White background
++    paper_bgcolor='white',           # White outer background
++    font=dict(
++        family="Times New Roman",    # LaTeX style font
++        size=18,                     # General font size
++        color="black"                # Font color
++    ),
++    title_x=0.5,                     # Center the title
++    title_font=dict(
++        size=24,
++        family="Times New Roman",
++        color="black",
++    ),
++    legend=dict(
++        title=None,
++        font=dict(size=16),
++        orientation="h",              # horizontal legend (optional)
++        x=0.5,
++        xanchor="center",
++        y=-0.2,                       # move legend below
++    ),
++    xaxis=dict(
++        showgrid=True,
++        gridcolor='rgb(120,120,120)',
++        zeroline=False,
++        linecolor='black',
++        ticks='outside',
++        title_font=dict(size=20),
++    ),
++    yaxis=dict(
++        showgrid=True,
++        gridcolor='rgb(120,120,120)',
++        zeroline=False,
++        linecolor='black',
++        ticks='outside',
++        title_font=dict(size=20),
++    ),
++    height = 800,
++)
++
++print("outputs_list" in globals())  # Should return True
++print(len(outputs_list))  # Should be > 0 if inference was done
++
++print("Sample outputs:", outputs_list[:5])
++print("Sample labels:", label_list[:5])
++print("Total outputs:", len(outputs_list))
++print("Total labels:", len(label_list))
++
++print(len(data.test_dataloader()))  # Should be > 0
++
++# Show the plot
++fig.show()
++#%%
++import numpy as np
++
++# Specify the frame indices corresponding to steps
++step_indices = [5, 15, 40]
++
++dataset = val_dataloader.dataset
++for step in step_indices:
++    data = dataset[step]  # retrieve the data dict at the step
++    pos = data['pos'].numpy()        # shape: (N_atoms, 3)
++    z = data['z'].numpy()            # atomic numbers
++    energy = data['y'].item() if 'y' in data else data['energy'].item()
++
++    print(f"\n=== Step {step} ===")
++    print(f"Energy: {energy:.10f} Hartree")
++    print("Atomic Coordinates:")
++    for i, (atomic_num, coords) in enumerate(zip(z, pos)):
++        symbol = dataset.atomic_numbers[atomic_num] if hasattr(dataset, 'atomic_numbers') else atomic_num
++        x, y, zc = coords
++        print(f"  {symbol:<2} {x: .10f} {y: .10f} {zc: .10f}")
++#%%
++# Get the dataset used by the test dataloader
++loader = data.test_dataloader()
++inner_dataset = loader.dataset
++
++# Check what this is
++print(type(inner_dataset))
++
++# Common case: DataLoader wraps a Subset which wraps the real dataset
++if hasattr(inner_dataset, 'dataset'):
++    base_dataset = inner_dataset.dataset
++else:
++    base_dataset = inner_dataset
++
++print(f"Base dataset type: {type(base_dataset)}")
++
++step = 5  # or 15, 40
++sample = base_dataset[step]
++
++print("Energy:", sample['y'] if 'y' in sample else sample['energy'])
++print("Atomic numbers:", sample['z'])
++print("Positions:", sample['pos'])
++
++#%%
++from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
++
++
++model.eval() # Set model to evaluation mode
++outputs_list = [] # Empty list to store output
++label_list = [] # Empty list, ground truth labels for dataset - visualise results
++
++# Get total number of batches
++total_batches = len(data.test_dataloader()) # Divide test data into smaller batches
++
++# Create progress bar
++with Progress(
++    #TextColumn("[progress.description]{task.description}"),
++    #BarColumn(),
++    #MofNCompleteColumn(),
++    #TimeRemainingColumn(),
++) as progress:
++
++    # Add task
++    task = progress.add_task("[cyan]Processing batches...", total=total_batches)
++
++    print("Test loader length:", len(data.test_dataloader()))
++
++    # Inference loop
++    with torch.no_grad():
++        for batch in data.test_dataloader():
++            # Get inputs and move to device
++            z = batch.z.to(model.device)
++            # print(batch.pos)
++            pos = batch.pos.to(model.device)
++            # print(pos)
++            print(f"Batch size: {batch.z.shape[0]}")
++
++
++            # break
++
++            batch_idx = torch.flip(batch.batch.to(model.device), dims=[-1])
++
++            y = batch.y
++
++
++            # Forward pass
++            outputs, _ = model.model(z, pos, batch=batch_idx)
++
++            outputs_list.extend(outputs.squeeze(-1).tolist())
++            label_list.extend(y.squeeze(-1).tolist())
++
++            print("Shape of outputs:", outputs.shape)  # Check the shape of the outputs
++            print("Shape of y:", y.shape)  # Check the shape of the labels
++
++            # Convert outputs to Python floats
++            #outputs_list.extend([x.item() for x in outputs])
++            #label_list.extend([x.item() for x in y])
++
++            print("outputs shape:", outputs.shape)
++            print("squeezed:", outputs.squeeze(-1).shape)
++
++            # Update progress
++            progress.advance(task)
++
++#%%
++from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
++
++model.eval()
++outputs_list = []
++label_list = []
++
++# Get total number of batches
++total_batches = len(data.test_dataloader())
++
++# Create progress bar
++with Progress(
++    TextColumn("[progress.description]{task.description}"),
++    BarColumn(),
++    MofNCompleteColumn(),
++    TimeRemainingColumn(),
++) as progress:
++
++    # Add task
++    task = progress.add_task("[cyan]Processing batches...", total=total_batches)
++
++    # Inference loop
++    with torch.no_grad():
++        for batch in data.test_dataloader():
++            # Get inputs and move to device
++            z = batch.z.to(model.device)
++            # print(batch.pos)
++            pos = batch.pos.to(model.device)
++            # print(pos)
++
++            # break
++            
++            batch_idx = torch.flip(batch.batch.to(model.device), dims=[-1])
++            
++            y = batch.y
++
++
++            # Forward pass
++            outputs, _ = model.model(z, pos, batch=batch_idx)
++
++            # Convert outputs to Python floats
++            outputs_list.extend([x.item() for x in outputs])
++            label_list.extend([x.item() for x in y])
++
++            # Update progress
++            progress.advance(task)
++
++#%%
++import plotly.express as px
++
++# Create a DataFrame for easier plotting
++import pandas as pd
++
++sub_outputs_list = outputs_list[:1000]
++sub_label_list = label_list[:1000]
++df = pd.DataFrame({
++    'Time(Frame)': range(len(sub_label_list)),
++    'Outputs': sub_outputs_list,
++    'Labels': sub_label_list,
++    # "diff": [outputs_list[i] - label_list[i] for i in range(len(outputs_list))],
++})
++
++# Create a linear plot
++fig = px.line(df, x='Time(Frame)', y=['Outputs', 'Labels'], labels={'value': 'Energy', 'variable': 'Legend'}, title='Equivariant Transformer Model Trained on Butene and Tested on Pentene')
++
++# Show the plot
++fig.show()
++#%%
++import plotly.express as px
++import statistics
++# Create a DataFrame for easier plotting
++import pandas as pd
++
++sub_outputs_list = outputs_list[:1000]
++sub_label_list = label_list[:1000]
++df = pd.DataFrame({
++    'Time(Frame)': range(len(sub_label_list)),
++    'Outputs': list(map(lambda x: x - statistics.mean(sub_outputs_list), sub_outputs_list)),
++    'Labels': list(map(lambda x: x - statistics.mean(sub_label_list), sub_label_list)),
++    # "diff": [outputs_list[i] - label_list[i] for i in range(len(outputs_list))],
++})
++
++# Create a linear plot
++fig = px.line(df, x='Time(Frame)', y=['Outputs', 'Labels'], labels={'value': 'Energy', 'variable': 'Legend'}, title='Equivariant Transformer Model Trained on Butene and Tested on Pentene, moving with average')
++
++# Show the
++# plot
++fig.show()
++#%%
++import plotly.express as px
++import numpy as np
++# Create a DataFrame for easier plotting
++import pandas as pd
++
++sub_outputs_list = np.array(outputs_list[:1000]) + 12.7
++sub_label_list = np.array(label_list[:1000]) + 16
++df = pd.DataFrame({
++    'Time(Frame)': range(len(sub_label_list)),
++    'Outputs': sub_outputs_list,
++    'Labels': sub_label_list,
++    # "diff": [outputs_list[i] - label_list[i] for i in range(len(outputs_list))],
++})
++
++# Create a linear plot
++fig = px.line(df, x='Time(Frame)', y=['Outputs', 'Labels'], labels={'value': 'Energy', 'variable': 'Legend'}, title='Equivariant Transformer Model Trained on Butene and Tested on Pentene, Adding fix number instead of moving with average')
++
++# Show the plot
++fig.show()
++#%%
++# sub_outputs_list - statistics.mean(sub_outputs_list)
++list(map(lambda x: x - statistics.mean(sub_outputs_list), sub_outputs_list))
++#%%
++outputs_list[0] - label_list[0]
++#%%
++from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
++
++model.eval()
++outputs_list = []
++label_list = []
++
++# Get total number of batches
++total_batches = len(data.test_dataloader())
++
++# Create progress bar
++with Progress(
++    TextColumn("[progress.description]{task.description}"),
++    BarColumn(),
++    MofNCompleteColumn(),
++    TimeRemainingColumn(),
++) as progress:
++
++    # Add task
++    task = progress.add_task("[cyan]Processing batches...", total=total_batches)
++
++    # Inference loop
++    with torch.no_grad():
++        for batch in data.test_dataloader():
++            # Get inputs and move to device
++            z = torch.flip(batch.z.to(model.device), dims=[0])
++            # print(batch.pos)
++            pos = torch.flip(batch.pos.to(model.device), dims=[-1])
++            # print(pos)
++
++            # break
++            
++            batch_idx = torch.flip(batch.batch.to(model.device), dims=[-1])
++            
++            y = batch.y
++
++
++            # Forward pass
++            outputs, _ = model.model(z, pos, batch=batch_idx)
++
++            # Convert outputs to Python floats
++            outputs_list.extend([x.item() for x in outputs])
++            label_list.extend([x.item() for x in y])
++
++            # Update progress
++            progress.advance(task)
++            # break
++#%%
++outputs_list[0] - label_list[0]
++#%%
++    # trainer = pl.Trainer(
++    #     # logger=_logger,
++    #     inference_mode=False,
++    #     accelerator="auto",
++    #     devices=args.ngpus,
++    #     num_nodes=args.num_nodes,
++    # )
++    # trainer.test(model, data)
++#%%
++model.model.state_dict()
++#%%
++from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
++
++model.eval()
++outputs_list = []
++label_list = []
++
++# Get total number of batches
++total_batches = len(data.test_dataloader())
++
++# Create progress bar
++with Progress(
++    TextColumn("[progress.description]{task.description}"),
++    BarColumn(),
++    MofNCompleteColumn(),
++    TimeRemainingColumn(),
++) as progress:
++    
++    # Add task
++    task = progress.add_task("[cyan]Processing batches...", total=total_batches)
++    
++    # Inference loop
++    with torch.no_grad():
++        for batch in data.test_dataloader():
++            # Get inputs and move to device
++            z = batch.z.to(model.device)
++            pos = batch.pos.to(model.device)
++            batch_idx = batch.batch.to(model.device)
++            y = batch.y
++
++            # Forward pass
++            outputs, _ = model.model(z, pos, batch=batch_idx)
++            
++            # Convert outputs to Python floats
++            outputs_list.extend([x.item() for x in outputs])
++            label_list.extend([x.item() for x in y])
++            
++            # Update progress
++            progress.advance(task)
++#%%
++import numpy as np
++#%%
++t = np.arange(256)
++sp = np.fft.fft(np.sin(t))
++
++
++#%%
++import matplotlib.pyplot as plt
++freq = np.fft.fftfreq(t.shape[-1])
++#%%
++def make_fft_plot(timeseries, ax, label):
++    freq = np.fft.fftfreq(timeseries.shape[-1])
++    spectrum  = np.fft.fft(timeseries)
++    ax.plot(freq, spectrum.real, label=f'real + {label}')
++    ax.plot(freq, spectrum.imag, label=f'imag + {label}')
++#%% md
++### Butene For DeepSet
++#%%
++import plotly.express as px
++
++# Create a DataFrame for easier plotting
++import pandas as pd
++
++sub_outputs_list = outputs_list[:1000]
++sub_label_list = label_list[:1000]
++df = pd.DataFrame({
++    'Index': range(len(sub_label_list)),
++    'Outputs': sub_outputs_list,
++    'Labels': sub_label_list,
++    # "diff": [outputs_list[i] - label_list[i] for i in range(len(outputs_list))],
++})
++
++# Create a linear plot
++fig = px.line(df, x='Index', y=['Outputs', 'Labels'], labels={'value': 'Values', 'variable': 'Legend'}, title='Outputs vs Labels')
++
++# Show the plot
++fig.show()
++#%%
++outputs.cpu()
++#%%
++outputs_list
++#%%
++
++#%%
++fig, ax = plt.subplots()
++make_fft_plot(np.array(outputs_list), ax, 'outputs')
++#%%
++outputs_list = np.array(outputs_list)
++outputs_list = outputs_list - outputs_list.mean()
++#%%
++np.fft.fft(np.array(outputs_list))
++#%%
++plt.plot(np.arange(outputs_list.shape[-1]), np.round(np.fft.fft(np.array(np.random.random(size=outputs_list.shape[-1]))).imag, 4))
++plt.plot(np.arange(outputs_list.shape[-1]), np.round(np.fft.fft(np.array(np.random.random(size=outputs_list.shape[-1]))).real, 4))
++#%%
++plt.plot(np.arange(outputs_list.shape[-1]), np.round(np.fft.fft(np.array(outputs_list)).imag, 4))
++plt.plot(np.arange(outputs_list.shape[-1]), np.round(np.fft.fft(np.array(outputs_list)).real, 4))
++#%%
++
++def plot_fourier(ax, outputs_list):
++    ax.plot(np.arange(outputs_list.shape[-1]), np.fft.fft(np.array(outputs_list)).imag)
++    ax.plot(np.arange(outputs_list.shape[-1]), np.fft.fft(np.array(outputs_list)).real)
++#%%
++outputs_list
++#%%
++
++#%%
++
++#%%
++outputs_list
++#%%
++from torchmetrics import MeanAbsoluteError
++
++# Create the metric
++mae = MeanAbsoluteError()
++
++# Compute the metric
++mae(torch.tensor(outputs_list), torch.tensor(label_list))
++
++# Print the result
++mae.compute()
++
++
++#%% md
++### Butene Part for ET
++#%%
++import plotly.express as px
++
++# Create a DataFrame for easier plotting
++import pandas as pd
++
++sub_outputs_list = outputs_list[:1000]
++sub_label_list = label_list[:1000]
++df = pd.DataFrame({
++    'Index': range(len(sub_label_list)),
++    'Outputs': sub_outputs_list,
++    'Labels': sub_label_list,
++    # "diff": [outputs_list[i] - label_list[i] for i in range(len(outputs_list))],
++})
++
++# Create a linear plot
++fig = px.line(df, x='Index', y=['Outputs', 'Labels'], labels={'value': 'Values', 'variable': 'Legend'}, title='Outputs vs Labels')
++
++# Show the plotء٬س۰
++fig.show()
++#%%
++from torchmetrics import MeanAbsoluteError
++
++# Create the metric
++mae = MeanAbsoluteError()
++
++# Compute the metric
++mae(torch.tensor(outputs_list), torch.tensor(label_list))
++
++# Print the result
++mae.compute()
++
++
++#%% md
++#### Load Butene dataset
++#%%
++args = {
++    "activation": "silu",
++    "aggr": "add",
++    "atom_filter": -1,
++    "attn_activation": "silu",
++    "batch_size": 1,
++    "coord_files": None,
++    "cutoff_lower": 0.0,
++    "cutoff_upper": 5.0,
++    "dataset": "MD17",
++    "dataset_arg": {
++        "molecules": "aspirin"
++    },
++    "dataset_root": "~/data",
++    "derivative": False,
++    "distance_influence": "both",
++    "early_stopping_patience": 300,
++    "ema_alpha_neg_dy": 1.0,
++    "ema_alpha_y": 0.05,
++    "embed_files": None,
++    "embedding_dimension": 128,
++    "energy_files": None,
++    "y_weight": 0.2,
++    "force_files": None,
++    "neg_dy_weight": 0.8,
++    "load_model": None,
++    "log_dir": "logs/",
++    "lr": 0.001,
++    "lr_factor": 0.8,
++    "lr_min": 1.0e-07,
++    "lr_patience": 30,
++    "lr_warmup_steps": 1000,
++    "max_num_neighbors": 32,
++    "max_z": 100,
++    "model": "equivariant-transformer",
++    "neighbor_embedding": True,
++    "ngpus": -1,
++    "num_epochs": 3000,
++    "num_heads": 8,
++    "num_layers": 6,
++    "num_nodes": 1,
++    "num_rbf": 32,
++    "num_workers": 6,
++    "output_model": "Scalar",
++    "precision": 32,
++    "prior_model": None,
++    "rbf_type": "expnorm",
++    "redirect": False,
++    "reduce_op": "add",
++    "save_interval": 10,
++    "splits": None,
++    "standardize": True,
++    "test_interval": 5,
++    "test_size": 1299,
++    "train_size": 1,
++    "trainable_rbf": False,
++    "val_size": 1,
++    "weight_decay": 0.0,
++    "box_vecs": None,
++    "charge": False,
++    "spin": False,
++    "vector_cutoff": True,
++    "wandb_use": True,
++    "wandb_project": "MD17-Mix_No_Ethanol",
++    "tensorboard_use": True,
++    "wandb_name": "ET-Transformer-Mix_No_Ethanol",
++    "pairwise_thread": True,
++    "triples_thread": True,
++    "return_vecs": True,
++    "loop": True,
++    "base_cutoff": 5.0,
++    "outer_cutoff": 5.0,
++    "gradient_clipping": 0.0,
++    "remove_ref_energy": False,
++    "train_loss": "mse_loss",
++    "train_loss_arg": None,
++    "seed": 1,
++    "dataset_preload_limit": 1024,
++    "lr_metric": "val",
++    "box": None,
++    "long_edge_index": True,
++    "check_errors": True,
++    "strategy": "brute",
++    "include_transpose": True,
++    "resize_to_fit": True,
++    "output_mlp_num_layers": 0,
++    "equivariance_invariance_group": "O(3)",
++    "static_shapes": False,
++    "wandb_resume_from_id": None,
++    "inference_batch_size": 1,
++}
++
++argparse_args = argparse.Namespace(**args)
++
++# Now you can access the arguments as attributes of the args object
++print(argparse_args.activation)
++#%%
++data = DataModule(argparse_args)
++data.prepare_data()
++data.setup("fit")
++#%%
++energies = [float(data.dataset[i]["y"]) for i in range(len(data.dataset))]
++#%%
++fig, ax = plt.subplots()
++
++plot_fourier(ax, np.array(energies)- np.array(energies).mean())
++#%%
++energies = [float(data.dataset[i]["y"]) for i in range(len(data.dataset))]
++#%%
++fig, ax = plt.subplots()
++
++plot_fourier(ax, np.array(energies)- np.array(energies).mean())
++ax.set_title("asdas")
++#%%
++args["dataset_arg"] = {
++    "molecules": "ethanol"
++}
++argparse_args = argparse.Namespace(**args)
++data = DataModule(argparse_args)
++data.prepare_data()
++data.setup("fit")
++
++#%%
++for mol in "aspirin,benzene,malonaldehyde,naphtalene,toluene,salicylic_acid,uracil,paracetamol".split(","):
++    args["dataset_arg"] = {
++        "molecules": mol,
++    }
++    argparse_args = argparse.Namespace(**args)
++    data = DataModule(argparse_args)
++    data.prepare_data()
++    data.setup("fit")
++    
++    # Calc ener
++    energies = [float(data.dataset[i]["y"]) for i in range(len(data.dataset))]
++    # Set the name
++    fig, ax = plt.subplots()
++
++    plot_fourier(ax, np.array(energies)- np.array(energies).mean())
++    ax.set_title(mol)
++    plt.show()
++#%%
++import plotly.express as px
++import pandas as pd
++
++df = pd.DataFrame({
++    'x': range(len(energies)),
++    'energies': np.array(energies)
++}
++)
++
++px.line(df, x=['x'], y='energies')
++#%%

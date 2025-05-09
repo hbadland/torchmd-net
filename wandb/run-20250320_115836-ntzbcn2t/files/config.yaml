@@ -1,0 +1,244 @@
+_wandb:
+    value:
+        cli_version: 0.19.8
+        m: []
+        python_version: 3.12.9
+        t:
+            "1":
+                - 1
+                - 9
+                - 55
+                - 77
+                - 103
+                - 106
+            "2":
+                - 1
+                - 9
+                - 55
+                - 77
+                - 103
+                - 106
+            "3":
+                - 13
+                - 16
+                - 23
+                - 55
+            "4": 3.12.9
+            "5": 0.19.8
+            "8":
+                - 5
+            "12": 0.19.8
+            "13": darwin-arm64
+activation:
+    value: silu
+aggr:
+    value: add
+atom_filter:
+    value: -1
+attn_activation:
+    value: silu
+base_cutoff:
+    value: 0
+batch_size:
+    value: 20
+box:
+    value: null
+box_vecs:
+    value: null
+charge:
+    value: false
+check_errors:
+    value: false
+checkpoint_monitor:
+    value: val_total_mse_loss
+close_far_split:
+    value: true
+conf:
+    value: null
+coord_files:
+    value: null
+cutoff_lower:
+    value: 0
+cutoff_upper:
+    value: 10
+dataset:
+    value: MDCustomInMemory
+dataset_arg:
+    value:
+        end: 6600
+        root: /Users/harrybadland/PycharmProjects/harry-torchmd/torchmd-net/examples/Butene-New
+        start: 100
+dataset_preload_limit:
+    value: 1024
+dataset_root:
+    value: ~/data
+derivative:
+    value: true
+distance_influence:
+    value: both
+early_stopping_monitor:
+    value: val_total_mse_loss
+early_stopping_patience:
+    value: 300
+ema_alpha_neg_dy:
+    value: 1
+ema_alpha_y:
+    value: 0.05
+embed_files:
+    value: null
+embedding_dimension:
+    value: 128
+energy_files:
+    value: null
+equivariance_invariance_group:
+    value: O(3)
+expert_out_features:
+    value: 128
+force_files:
+    value: null
+forces_based_on_energy:
+    value: false
+gradient_clipping:
+    value: 0
+include_transpose:
+    value: true
+inference_batch_size:
+    value: 20
+inner_cutoff:
+    value: 5
+load_model:
+    value: null
+load_weights:
+    value: null
+log_dir:
+    value: logs/deepset_alkins/butene/20250320-115747
+long_edge_index:
+    value: true
+loop:
+    value: true
+lr:
+    value: 0.001
+lr_factor:
+    value: 0.2
+lr_metric:
+    value: val
+lr_min:
+    value: 1e-07
+lr_patience:
+    value: 30
+lr_warmup_steps:
+    value: 1000
+max_num_neighbors:
+    value: 50000
+max_z:
+    value: 100
+mlp_layer:
+    value: 3
+model:
+    value: deepset
+model_arg:
+    value: null
+n_atom_basis:
+    value: 22
+neg_dy_weight:
+    value: 0.8
+neighbor_embedding:
+    value: false
+ngpus:
+    value: -1
+num_epochs:
+    value: 300
+num_gates:
+    value: 10
+num_heads:
+    value: 8
+num_layers:
+    value: 6
+num_nodes:
+    value: 1
+num_rbf:
+    value: 32
+num_workers:
+    value: 8
+outer_cutoff:
+    value: 5
+output_mlp_num_layers:
+    value: 0
+output_model:
+    value: Scalar
+pairwise_thread:
+    value: true
+precision:
+    value: 32
+prior_args:
+    value: []
+prior_model:
+    value: null
+rbf_type:
+    value: expnorm
+redirect:
+    value: false
+reduce_op:
+    value: add
+remove_ref_energy:
+    value: false
+reset_trainer:
+    value: false
+resize_to_fit:
+    value: true
+return_vecs:
+    value: true
+save_interval:
+    value: 10
+seed:
+    value: 1
+spin:
+    value: false
+splits:
+    value: null
+standardize:
+    value: true
+static_shapes:
+    value: false
+strategy:
+    value: brute
+tensorboard_use:
+    value: true
+test_interval:
+    value: 10
+test_size:
+    value: 100
+top_k:
+    value: 5
+train_loss:
+    value: mse_loss
+train_loss_arg:
+    value: null
+train_size:
+    value: 1000
+trainable_rbf:
+    value: false
+triples_thread:
+    value: true
+triplets_cutoff:
+    value: 15
+use_vector_representation:
+    value: true
+using_triplet_module:
+    value: true
+val_size:
+    value: 100
+vector_cutoff:
+    value: true
+wandb_name:
+    value: Butene-Testrun1
+wandb_project:
+    value: HarryDeepset
+wandb_resume_from_id:
+    value: null
+wandb_use:
+    value: true
+weight_decay:
+    value: 0
+y_weight:
+    value: 0.2

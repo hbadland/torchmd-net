@@ -1,0 +1,47 @@
+{
+  "os":  "macOS-15.3.2-arm64-arm-64bit",
+  "python":  "CPython 3.12.9",
+  "startedAt":  "2025-03-20T12:00:06.934859Z",
+  "args":  [
+    "--conf",
+    "examples/harry-setting.yaml"
+  ],
+  "program":  "/Users/harrybadland/PycharmProjects/harry-torchmd/torchmd-net/torchmdnet/scripts/train.py",
+  "codePath":  "torchmdnet/scripts/train.py",
+  "git":  {
+    "remote":  "https://github.com/Nourollah/torchmd-net.git",
+    "commit":  "8517d9d501425d48f7f516c4dc537071426a7dd4"
+  },
+  "email":  "harrybadland@outlook.com",
+  "root":  "/Users/harrybadland/PycharmProjects/harry-torchmd/torchmd-net",
+  "host":  "Harrys-MacBook-Pro-2.local",
+  "executable":  "/Users/harrybadland/miniconda3/envs/torchmd/bin/python",
+  "codePathLocal":  "torchmdnet/scripts/train.py",
+  "cpu_count":  12,
+  "cpu_count_logical":  12,
+  "disk":  {
+    "/":  {
+      "total":  "494384795648",
+      "used":  "113695887360"
+    },
+    "/System/Volumes/Data":  {
+      "total":  "494384795648",
+      "used":  "113695887360"
+    }
+  },
+  "memory":  {
+    "total":  "25769803776"
+  },
+  "cpu":  {
+    "count":  12,
+    "countLogical":  12
+  },
+  "apple":  {
+    "name":  "Apple M4 Pro",
+    "ecpuCores":  4,
+    "pcpuCores":  8,
+    "gpuCores":  16,
+    "memoryGb":  24,
+    "ramTotalBytes":  "25769803776"
+  }
+}
