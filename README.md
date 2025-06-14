@@ -209,3 +209,20 @@ We use [black](https://https://black.readthedocs.io/en/stable/). Please run `bla
 
 To run the tests, install the package and run `pytest` in the root directory of the repository. Tests are a good source of knowledge on how to use the different components of the package.  
 
+---
+
+## 🔬 My Research Project (BSc Chemistry, 2025)
+
+This fork contains original work carried out by myself for my BSc dissertation:
+**"Investigating Generalisation Limits of Deepset Architectures for Molecular Energy and Force Predictions"**
+
+### 📌 Summary of Contributions
+- ...
+- ...
+
+### 📈 Key Results
+[add table/plots here or link to report]
+
+### 🧪 How to Use My Fork
+[commands here]
+
